@@ -2902,7 +2902,7 @@ def load_prompt(prompt_text: str, prompt_file: str, logs: RunLogs) -> tuple[str,
 # Providers recognised as top-level keys of a per-provider
 # ``LLM_SCHEDULER_USAGE_JSON`` map. Mirrors the set accepted by
 # ``--provider`` validation in the scheduler/ralph-robin CLIs.
-KNOWN_PROVIDERS = frozenset({"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"})
+KNOWN_PROVIDERS = frozenset({"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai", "antigravity"})
 
 
 def usage_snapshot_for_provider(provider: str, env: dict[str, str] | None = None) -> dict[str, Any]:
@@ -2971,6 +2971,17 @@ def usage_snapshot_for_provider(provider: str, env: dict[str, str] | None = None
             "reason": snap.reason,
             "source": snap.source,
             "selected_model": snap.selected_model,
+            "scopes": [_scope_to_dict(s) for s in snap.scopes],
+        }
+    if provider == "antigravity":
+        from .providers import read_antigravity
+
+        snap = read_antigravity(env)
+        return {
+            "provider": snap.provider,
+            "available": snap.available,
+            "reason": snap.reason,
+            "source": snap.source,
             "scopes": [_scope_to_dict(s) for s in snap.scopes],
         }
     if provider == "zai":
@@ -3078,7 +3089,7 @@ def _legacy_snapshot_to_scopes(snapshot: dict[str, Any]) -> list[dict[str, Any]]
 
 def _decision_scopes(snapshot: dict[str, Any], provider: str) -> list[dict[str, Any]]:
     """Return the decision-ready scope dicts for ``provider``."""
-    if provider in ("kilo", "opencode", "minimax", "zai"):
+    if provider in ("kilo", "opencode", "minimax", "zai", "antigravity"):
         existing = snapshot.get("scopes")
         if isinstance(existing, list) and existing and isinstance(existing[0], dict) and "kind" in existing[0]:
             return existing

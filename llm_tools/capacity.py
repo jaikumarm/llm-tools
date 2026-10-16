@@ -45,6 +45,7 @@ PROVIDER_KILO = "kilo"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_MINIMAX = "minimax"
 PROVIDER_ZAI = "zai"
+PROVIDER_ANTIGRAVITY = "antigravity"
 
 ALL_PROVIDERS: tuple[str, ...] = (
     PROVIDER_CLAUDE,
@@ -54,6 +55,7 @@ ALL_PROVIDERS: tuple[str, ...] = (
     PROVIDER_MINIMAX,
     PROVIDER_OPENCODE,
     PROVIDER_ZAI,
+    PROVIDER_ANTIGRAVITY,
 )
 
 
@@ -83,6 +85,7 @@ ALL_SCOPES: tuple[str, ...] = (
 
 # Scopes each provider natively supports (plus `auto`).
 PROVIDER_SCOPES: dict[str, frozenset[str]] = {
+    PROVIDER_ANTIGRAVITY: frozenset({SCOPE_AUTO, SCOPE_5H, SCOPE_WEEKLY}),
     PROVIDER_CODEX: frozenset({SCOPE_AUTO, SCOPE_5H, SCOPE_WEEKLY}),
     PROVIDER_CLAUDE: frozenset({SCOPE_AUTO, SCOPE_5H, SCOPE_WEEKLY}),
     PROVIDER_COPILOT: frozenset({SCOPE_AUTO, SCOPE_MONTHLY}),
@@ -491,6 +494,7 @@ __all__ = [
     "PROVIDER_MINIMAX",
     "PROVIDER_OPENCODE",
     "PROVIDER_ZAI",
+    "PROVIDER_ANTIGRAVITY",
     "PROVIDER_SCOPES",
     "SCOPE_5H",
     "SCOPE_AUTO",

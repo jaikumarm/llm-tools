@@ -110,6 +110,7 @@ def provider_display_name(provider: str) -> str:
         "opencode": "OpenCode",
         "minimax": "MiniMax",
         "zai": "Z.ai",
+        "antigravity": "Antigravity",
     }.get(provider, provider)
 
 
@@ -1707,6 +1708,19 @@ def minimax_rows(cfg: Config, minimax_json: dict[str, Any] | None) -> list[Usage
     return rows
 
 
+def antigravity_rows(cfg: Config, snap: Any) -> list[UsageRow]:
+    if not getattr(snap, "available", False):
+        return [UsageRow("Antigravity", "auto", None, "unavailable", None, "agy /usage")]
+    rows: list[UsageRow] = []
+    for scope in snap.scopes:
+        model = "Gemini"
+        used = 100.0 - scope.remaining_percent
+        common.log_usage_sample(f"Antigravity {model}", scope.name, scope.remaining_percent)
+        rows.append(row_from_used(cfg, f"Antigravity {model}", scope.name, used,
+                                  scope.resets_at, scope.source, "Antigravity", model=model))
+    return rows
+
+
 def print_minimax_rows(cfg: Config, minimax_json: dict[str, Any] | None) -> None:
     print_usage_rows(cfg, minimax_rows(cfg, minimax_json))
 
@@ -1902,6 +1916,7 @@ def service_payload_from_provider_data(cfg: Config, provider_data: dict[str, Any
             "opencode": snapshot_to_json(provider_data.get("opencode")),
             "minimax": snapshot_to_json(provider_data.get("minimax")),
             "zai": snapshot_to_json(provider_data.get("zai")),
+            "antigravity": snapshot_to_json(provider_data.get("antigravity")),
         },
     }
 
@@ -1918,6 +1933,7 @@ def provider_data_from_service_payload(payload: dict[str, Any]) -> dict[str, Any
         "opencode": snapshot_from_json(providers.get("opencode")),
         "minimax": snapshot_from_json(providers.get("minimax")),
         "zai": snapshot_from_json(providers.get("zai")),
+        "antigravity": snapshot_from_json(providers.get("antigravity")),
     }
 
 
@@ -1968,6 +1984,11 @@ def log_samples_from_provider_data(provider_data: dict[str, Any]) -> None:
         for scope in getattr(minimax_snap, "scopes", []) or []:
             if scope.kind == CapacityKind.RESET_WINDOW:
                 common.log_usage_sample(MINIMAX_DISPLAY_NAME, scope.name, scope.remaining_percent)
+
+    antigravity_snap = provider_data.get("antigravity")
+    if getattr(antigravity_snap, "available", False):
+        for scope in antigravity_snap.scopes:
+            common.log_usage_sample("Antigravity Gemini", scope.name, scope.remaining_percent)
 
     zai_snap = provider_data.get("zai")
     if getattr(zai_snap, "available", False):
@@ -2091,9 +2112,11 @@ def read_all_provider_data(cfg: Config, progress: "ProgressReporter | None" = No
         read_minimax,
         read_opencode,
         read_zai,
+        read_antigravity,
     )
 
     readers: dict[str, tuple[Any, Any]] = {
+        "antigravity": (read_antigravity, lambda: unavailable_snapshot("antigravity", "agy /usage")),
         "codex": (
             common.read_codex,
             lambda: {"provider": "codex", "available": False, "reason": "reader-error", "source": "~/.codex/sessions"},
@@ -2193,6 +2216,7 @@ def json_object_from_provider_data(cfg: Config, provider_data: dict[str, Any], g
         "opencode": _opencode_to_json(provider_data["opencode"]),
         "minimax": _minimax_to_json(provider_data["minimax"]),
         "zai": _zai_to_json(provider_data["zai"]),
+        "antigravity": snapshot_to_json(provider_data.get("antigravity")),
     }
     for name in ALL_PROVIDERS:
         if name in obj and not provider_visible(cfg, name):
@@ -2297,6 +2321,7 @@ def render_once_via_service(cfg: Config) -> bool:
 
 def _build_usage_rows(cfg: Config, provider_data: dict[str, Any]) -> tuple[list[Any], bool]:
     builders: list[tuple[str, Any]] = [
+        ("antigravity", lambda: antigravity_rows(cfg, provider_data.get("antigravity"))),
         ("claude", lambda: claude_rows(cfg, provider_data["claude"])),
         ("codex", lambda: codex_rows(cfg, provider_data["codex"])),
         ("copilot", lambda: copilot_rows(cfg, _legacy_copilot(provider_data["copilot"], False))),

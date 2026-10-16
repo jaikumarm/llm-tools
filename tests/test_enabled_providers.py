@@ -116,7 +116,7 @@ def _stub_readers(monkeypatch: pytest.MonkeyPatch) -> None:
     def must_not_read() -> object:
         raise AssertionError("hidden provider was read")
 
-    for name in ("read_copilot_snapshot", "read_kilo", "read_opencode", "read_minimax", "read_zai"):
+    for name in ("read_copilot_snapshot", "read_kilo", "read_opencode", "read_minimax", "read_zai", "read_antigravity"):
         monkeypatch.setattr(providers, name, must_not_read)
     monkeypatch.setattr(usage.common, "read_codex", lambda: {"provider": "codex", "available": False, "reason": "fixture"})
     monkeypatch.setattr(
@@ -133,13 +133,13 @@ def test_hidden_providers_are_not_read_or_shown(monkeypatch: pytest.MonkeyPatch,
     cfg.provider_parallelism = parallelism
     assert cfg.visible_providers == frozenset({"claude", "codex"})
     data = usage.read_all_provider_data(cfg)
-    assert set(data) == {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"}
+    assert set(data) == {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai", "antigravity"}
     assert data["kilo"].reason == "hidden"
     assert data["codex"]["reason"] == "fixture"
     rows, _show_model = usage._build_usage_rows(cfg, data)
     assert {row.provider_label or row.provider for row in rows} == {"Claude", "Codex"}
     obj = usage.json_object_from_provider_data(cfg, data)
-    for name in ("copilot", "kilo", "opencode", "minimax", "zai"):
+    for name in ("copilot", "kilo", "opencode", "minimax", "zai", "antigravity"):
         assert obj[name] == {"provider": name, "available": False, "reason": "hidden"}
     assert obj["codex"]["reason"] == "fixture"
 

@@ -13,7 +13,7 @@ The goal is to make LLM CLI work **more observable and less wasteful**. You can 
 
 The tools are intentionally **local- and CLI-first**. Instead of introducing another authentication layer, they use the provider CLIs you already have installed and authenticated. Credentials stay with those tools, and normal use remains zero-config.
 
-Supported providers include: **Codex, Claude Code, GitHub Copilot, Kilo Code, MiniMax, OpenCode, and Z.ai**.
+Supported providers include: **Codex, Claude Code, GitHub Copilot, Kilo Code, MiniMax, OpenCode, Google Antigravity (Gemini), and Z.ai**.
 
 > Implementation and design detail (provider internals, environment knobs, invariants) lives in [AGENTS.md](./AGENTS.md). This README is the user-facing guide.
 
@@ -108,6 +108,7 @@ tail -f ~/.cache/llm-tools/llm-scheduler/logs/latest/run.log
 | Kilo Code      | `kilo`     | [kilo.ai](https://kilo.ai) - `npm install -g @kilocode/cli`                                                               |
 | MiniMax        | `mmx`      | [platform.minimax.io](https://platform.minimax.io/) - `npm install -g mmx-cli`                                            |
 | OpenCode       | `opencode` | [opencode.ai](https://opencode.ai/) - `npm install -g opencode-ai`                                                        |
+| Antigravity    | `agy`      | Install and sign in to Google Antigravity CLI; requires native `agy --print /usage` support. |
 | Z.ai (capacity)| _none_     | Capacity-only: zero-config — the key is read from Kilo's/OpenCode's `auth.json`; launch via Kilo (`zai/<model>`) — see [Z.ai](#zai-glm-via-kilo-or-opencode). |
 
 You do not need every provider CLI installed.
@@ -478,6 +479,7 @@ llm-scheduler --provider codex --prompt-file task.md --dry-run              # sh
 | Kilo Code      | `kilo run <prompt>`            | `kilo run --dir <cwd> <prompt>`      |
 | OpenCode       | `opencode`                     | `opencode run --dir <cwd> <prompt>`  |
 | MiniMax        | `mmx`                          | `mmx run --auto -C <cwd> <prompt>`   |
+| Antigravity    | `agy --prompt-interactive <prompt>` | `agy --print <prompt>` |
 | Z.ai           | _launch via a route_           | _launch via a route_                 |
 
 Kilo Code and OpenCode accept `-m, --model <provider>/<model>`; the scheduler and Ralph inject this flag when the per-provider policy or route pins a model (e.g. `-m zai/glm-4.7`). No permission-bypassing flag is injected — whether a headless run may act without prompting is governed by each tool's own permission config. Interactive Kilo, OpenCode, and MiniMax inherit the working directory from the launching process. To override Claude Code's settings for one run, use `--command-template`, e.g. `claude --permission-mode plan --print {prompt}`.
@@ -630,6 +632,32 @@ ralph-robin --routes kilo-zai-glm-4-7,kilo-zai-glm-5-2 --prompt-file task.md
 ```
 
 Launching Z.ai directly via `--provider zai` is rejected — it has no CLI to run; always go through a route. `llm-usage --json` emits a `zai` top-level key with the parsed `5h` and `weekly` scopes. (The API endpoints, payload classification, and China-mirror fallback are detailed in [AGENTS.md](./AGENTS.md).)
+
+### Google Antigravity (Gemini)
+
+Antigravity support reads `agy --print /usage` using your existing CLI login.
+The table shows one Gemini group with its `5h` and `weekly` remaining percentages
+and reset times. Claude/GPT quotas from Antigravity are ignored. No per-model
+split is inferred from the shared Gemini allowance.
+
+```bash
+LLM_USAGE_PROVIDERS=antigravity ./llm-usage --no-service
+./llm-scheduler --provider antigravity --model <gemini-model-id> --prompt-file task.md
+./ralph-robin --providers antigravity --prompt-file task.md
+```
+
+Use `agy models` to find a Gemini model ID. The scheduler accepts `--model`;
+Ralph can pin it through `[providers.antigravity].model` in the shared config.
+Without a pin, `agy` uses its configured default; keep that default on Gemini
+because this adapter gates only on Gemini quotas. Supported scopes are `auto`,
+`5h`, and `weekly`; `auto` checks both reported windows. Missing CLI, failed login,
+timeout, or unrecognized output shows `unavailable` without blocking other providers.
+Each refresh launches a bounded quota query; it does not submit an AI task.
+
+* `LLM_USAGE_ANTIGRAVITY_TIMEOUT`: quota query timeout in seconds (default `20`,
+  with two additional seconds for process shutdown).
+* `LLM_USAGE_ANTIGRAVITY_USAGE_TEXT`: inject native tab-separated `/usage` output
+  for deterministic tests, bypassing the CLI entirely (an empty value means no data).
 
 ### MiniMax
 

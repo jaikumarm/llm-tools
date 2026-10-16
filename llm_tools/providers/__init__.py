@@ -16,7 +16,8 @@ Adding a new provider is a small, well-defined change:
    ``llm_tools.scheduler.highlight_provider_text``.
 """
 
-from . import claude, codex, copilot, kilo, minimax, opencode, zai
+from . import antigravity, claude, codex, copilot, kilo, minimax, opencode, zai
+from .antigravity import read as read_antigravity
 from .claude import (
     PROVIDER_CLAUDE,
     normalize as claude_normalize,
@@ -81,6 +82,8 @@ from .zai import (
 
 
 __all__ = [
+    "antigravity",
+    "read_antigravity",
     "DEFAULT_ZAI_TIMEOUT",
     "KILO_MODES",
     "OPENCODE_MODES",

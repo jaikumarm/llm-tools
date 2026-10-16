@@ -346,7 +346,7 @@ def parse_providers(raw: str) -> list[str]:
         provider = trim(part)
         if not provider:
             continue
-        if provider not in {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"}:
+        if provider not in {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai", "antigravity"}:
             common.err(f"invalid provider in --providers: {provider}")
             raise SystemExit(2)
         providers.append(provider)

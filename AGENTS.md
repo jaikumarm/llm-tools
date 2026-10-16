@@ -77,6 +77,17 @@ printf '%s\n' '{"rate_limits":{"five_hour":{"used_percentage":10}}}' | ./llm-usa
 
 Prefer changing the smallest relevant function surface. Preserve existing function boundaries unless a helper clearly reduces duplication or risk.
 
+## Antigravity
+
+`llm_tools/providers/antigravity.py` reads the native tab-separated
+`agy --print /usage` report. Only Gemini rows become `5h`/`weekly` scopes;
+Claude/GPT quotas are ignored. Preserve this shared Gemini allowance without
+inventing individual model quotas. Scheduling uses the configured `agy` model;
+keep it on Gemini. Tests inject `LLM_USAGE_ANTIGRAVITY_USAGE_TEXT` (including
+an empty string to prevent real CLI calls). `LLM_USAGE_ANTIGRAVITY_TIMEOUT`
+sets the query timeout in seconds, default 20 plus two seconds shutdown grace.
+The sampler and JSON include an additive `antigravity` provider key.
+
 ## Adding a provider
 
 `llm-tools` uses a small provider-adapter contract. To add a new CLI, for example `acme-cli`:

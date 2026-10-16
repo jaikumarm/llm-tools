@@ -63,6 +63,8 @@ def _hermetic_config_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "isolated-xdg-config"))
     monkeypatch.delenv("LLM_TOOLS_CONFIG", raising=False)
     monkeypatch.delenv("LLM_USAGE_PROVIDERS", raising=False)
+    # Never launch a real authenticated Antigravity CLI in tests.
+    monkeypatch.setenv("LLM_USAGE_ANTIGRAVITY_USAGE_TEXT", "")
 
 
 @pytest.fixture()

@@ -67,7 +67,7 @@ def test_usage_provider_parallelism_default_and_override(monkeypatch: pytest.Mon
 def test_usage_provider_reads_fan_out(monkeypatch: pytest.MonkeyPatch) -> None:
     import llm_tools.providers as providers
 
-    barrier = threading.Barrier(7)
+    barrier = threading.Barrier(8)
 
     def wait_for_peers(value: object) -> object:
         barrier.wait(timeout=2.0)
@@ -108,12 +108,16 @@ def test_usage_provider_reads_fan_out(monkeypatch: pytest.MonkeyPatch) -> None:
         "read_zai",
         lambda: wait_for_peers(ProviderSnapshot(provider="zai", available=False, reason="fixture")),
     )
+    monkeypatch.setattr(
+        providers, "read_antigravity",
+        lambda: wait_for_peers(ProviderSnapshot(provider="antigravity", available=False, reason="fixture")),
+    )
     cfg = usage.Config()
-    cfg.provider_parallelism = 7
+    cfg.provider_parallelism = 8
     start = time.monotonic()
     data = usage.read_all_provider_data(cfg)
     assert time.monotonic() - start < 1.0
-    assert set(data) == {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"}
+    assert set(data) == {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai", "antigravity"}
 
 
 def test_codex_snapshot_normalises_legacy_shape(env: dict[str, str], tmp_path) -> None:
@@ -1197,7 +1201,7 @@ def test_render_watch_frame_docks_spinner_right_of_clock(monkeypatch, capsys) ->
             "codex": {"provider": "codex", "available": False, "reason": "test", "source": "test"},
             **{
                 k: usage.unavailable_snapshot(k, "test")
-                for k in ("claude", "copilot", "kilo", "opencode", "minimax", "zai")
+                for k in ("claude", "copilot", "kilo", "opencode", "minimax", "zai", "antigravity")
             },
         },
     )
