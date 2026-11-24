@@ -1279,7 +1279,7 @@ def creation_rotation(providers: str | None, routes: str | None) -> tuple[str, s
     explicit = providers is not None or routes is not None
     resolved_providers, resolved_routes = resolve_rotation(providers, routes)
     enabled = bridge_rotation.current_enabled()
-    conf = toolconfig.load_config() if resolved_routes else {}
+    conf = toolconfig.load_config()
     problem = bridge_rotation.check_rotation(enabled, conf, resolved_providers, resolved_routes, config_label=_config_label(), explicit=explicit)
     if problem:
         raise ValueError(problem)
@@ -1412,7 +1412,7 @@ def _doctor_provider_checks(mission: dict[str, Any] | None) -> list[dict[str, An
     for position, name in enumerate(names, 1):
         entry = _rotation_entry(conf, name, position, routes_mode=routes_mode)
         entries.append((name, entry["launch_cli"] if routes_mode else name))
-    return bridge_doctor.provider_checks(entries, check_versions=True)
+    return bridge_doctor.provider_checks(entries, check_versions=True, config=conf)
 
 
 def _mission_needs_you(mission: dict[str, Any] | None) -> str | None:
@@ -1544,7 +1544,7 @@ def _warn_not_signed_in(providers: Any, routes: Any, conf: dict[str, Any] | None
     from . import config as toolconfig
 
     if conf is None:
-        conf = toolconfig.load_config() if str(routes or "").strip() else {}
+        conf = toolconfig.load_config()
     for line in bridge_rotation.signin_warnings(conf, providers, routes):
         print(line, file=sys.stderr)
 

@@ -20,10 +20,10 @@ import textwrap
 import time
 from typing import Any, Callable
 
-from . import bridge_composer, bridge_hangup, bridge_providers, bridge_redraw
+from . import bridge_composer, bridge_hangup, bridge_providers, bridge_redraw, claude_accounts
+from . import config as toolconfig
 from .bridge_store import BridgeStore, default_state_dir, store_path
 from .bridge_store import controller_running as _controller_running
-from .common import KNOWN_PROVIDERS
 from .bridge_format import printable
 from .bridge_input import cell_slice, cell_width, without_flow_control
 from .bridge_input import BracketedPaste
@@ -123,6 +123,10 @@ def provider_installed(name: str) -> bool:
     return shutil.which(provider_binary(name)) is not None
 
 
+def _provider_order(config: dict[str, Any]) -> tuple[str, ...]:
+    return (*PROVIDER_ORDER, *toolconfig.claude_accounts(config))
+
+
 def disabled_launch_clis() -> frozenset[str]:
     """Launch CLIs that `[usage].providers` / `LLM_USAGE_PROVIDERS` disable (empty when all are enabled)."""
     try:
@@ -131,7 +135,7 @@ def disabled_launch_clis() -> frozenset[str]:
         enabled = current_enabled().names
     except (SystemExit, Exception):  # a broken config must never block the home screen
         return frozenset()
-    return frozenset() if enabled is None else frozenset(PROVIDER_ORDER) - enabled
+    return frozenset() if enabled is None else frozenset(_provider_order(_load_config())) - enabled
 
 
 def theme_guess_hint() -> str:
@@ -149,12 +153,15 @@ def theme_guess_hint() -> str:
 
 def detect_installed() -> tuple[str, ...]:
     """Provider CLIs found on PATH, in declared order."""
-    return tuple(name for name in PROVIDER_ORDER if provider_installed(name))
+    return tuple(name for name in _provider_order(_load_config()) if provider_installed(name))
 
 
 def _listed_names(installed: tuple[str, ...]) -> str:
     """`Codex, Claude Code and Copilot`; empty when no provider is installed."""
-    names = [spec.display_name if (spec := bridge_providers.get(name)) else name for name in installed]
+    names = [
+        spec.display_name if not claude_accounts.is_account(name) and (spec := bridge_providers.get(name)) else name
+        for name in installed
+    ]
     if not names:
         return ""
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
@@ -246,8 +253,9 @@ def detect_routes(config: dict[str, Any] | None, *, installed_only: bool = True)
     except Exception:  # a malformed table must never block the home screen
         return ()
     choices = []
+    available = _provider_order(config or {})
     for route_id, policy in declared.items():
-        if route_id in PROVIDER_ORDER or policy.provider not in PROVIDER_ORDER:
+        if route_id in available or policy.provider not in available:
             continue
         if installed_only and not provider_installed(policy.provider):
             continue
@@ -349,7 +357,7 @@ def offered_entries(config: dict[str, Any] | None = None) -> list[tuple[str, str
     """
     config = _load_config() if config is None else config
     disabled = disabled_launch_clis()
-    entries = [(name, name) for name in PROVIDER_ORDER if name not in disabled]
+    entries = [(name, name) for name in _provider_order(config) if name not in disabled]
     entries += [(route.route_id, route.provider) for route in detect_routes(config, installed_only=False)
                 if route.provider not in disabled]
     return entries
@@ -948,13 +956,13 @@ class Launcher:
         if len(self.objective.encode("utf-8")) > _MAX_OBJECTIVE_BYTES:
             raise ValueError("Objective exceeds the interactive 1 MiB UTF-8 limit; import a file or use an editor.")
         providers = list(dict.fromkeys(self.selection()))
-        valid = KNOWN_PROVIDERS - {"zai"}
+        valid = _provider_order(_load_config())
         routes = {route.route_id: route for route in self.routes}
         if not providers:
             raise ValueError("Select at least one provider (Space toggles).")
         for item in providers:
             if item not in valid and item not in routes:
-                raise ValueError(f"Unknown provider {item}; choose from {', '.join([*PROVIDER_ORDER, *routes])}.")
+                raise ValueError(f"Unknown provider {item}; choose from {', '.join([*valid, *routes])}.")
         for item in providers:
             route = routes.get(item)
             binary = route.provider if route is not None else item
@@ -1361,15 +1369,16 @@ def _field_hint(state: Launcher, width: int) -> str:
         return "Enter to save · no provider is started"
     first = [name for name in state.selection() if name not in state.exhausted][:1]
     text = state.start_hint()
-    if first == ["claude"] and state.native:
+    provider = state.launch_cli(first[0]) if first else ""
+    if claude_accounts.provider_family(provider) == "claude" and state.native:
         from . import bridge_doctor
 
-        if bridge_doctor.claude_folder_trusted(state.directory or state.cwd) is False:
+        if bridge_doctor.claude_folder_trusted(state.directory or state.cwd, provider=provider) is False:
             trust_hint = "Claude asks once to trust this folder: choose Yes"
             full = f"{text} · {trust_hint}"
             if cell_width(localize(full)) < width:
                 return full
-            return "Starts claude · uses capacity · trust folder: choose Yes"
+            return f"Starts {first[0]} · uses capacity · trust folder: choose Yes"
     return text
 
 
@@ -1934,7 +1943,7 @@ def _run_launcher(dispatch: Callable[[list[str]], int], probe: bridge_redraw.Sto
                      signins=_read_signins(installed, routes),
                      burst_window=_BURST_SECONDS, input_pending=_stdin_pending,
                      reloader=reloader, loading=True,
-                     disabled=tuple(name for name in PROVIDER_ORDER if name in disabled and provider_installed(name)),
+                     disabled=tuple(name for name in _provider_order(config) if name in disabled and provider_installed(name)),
                      theme_hint=theme_guess_hint())
     # Capacity is read once, on a worker thread, the first time the form opens.
     capacity = CapacityReader(installed)

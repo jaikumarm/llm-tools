@@ -293,6 +293,36 @@ llm-usage --service-install   # background sampler
 
 [Go deeper →](./docs/llm-usage.md)
 
+### Claude Code accounts
+
+The default `claude` provider reads the directory in `CLAUDE_CONFIG_DIR`, or `~/.claude` when the variable is unset. Sign in to each additional subscription using a separate directory:
+
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
+```
+
+Declare named accounts in `~/.config/llm-tools/config.toml` (or the file selected by `LLM_TOOLS_CONFIG`). Account names start with a lowercase letter or digit and may include lowercase letters, digits, underscores and hyphens, up to 32 characters. Use absolute paths or paths beginning with `~/`.
+
+```toml
+[claude.accounts]
+work = "~/.claude-work"
+second = "/path/to/another/claude-config"
+
+[ralph]
+providers = ["claude", "claude-work", "claude-second"]
+```
+
+The TOML table gives each login a provider ID that you can also use in `[usage].providers`, `[providers.<id>]`, or a route's `provider` setting. Bridge saves the account mapping with each mission's tool config. Named launches set `CLAUDE_CONFIG_DIR` and clear inherited Claude OAuth and API credential overrides so the CLI can use the selected directory's login.
+
+```bash
+LLM_USAGE_PROVIDERS=claude,claude-work llm-usage --json
+llm-scheduler --provider claude-work --prompt-file task.md
+ralph-robin --providers claude,claude-work --prompt-file task.md
+llm-bridge mission create --prompt "Work through the queued tasks" --providers claude,claude-work
+```
+
+Each configured account adds a row group and a top-level JSON key such as `claude-work`. A hidden account keeps its key with `available: false` and `reason: "hidden"`. Usage history is tracked by provider ID. OAuth samples, cooldowns, refresh locks, and statusline caches are isolated by config directory. Token refresh updates the credentials file in that directory.
+
 ## llm-scheduler
 
 Launch one prompt the moment a provider has capacity.

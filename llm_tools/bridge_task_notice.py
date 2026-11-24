@@ -36,7 +36,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from . import bridge_providers
+from . import bridge_providers, claude_accounts
 from .bridge_finish import COMPOSER_LINE, composer_is_idle
 from .bridge_states import ACTIVE_OPERATION_STATUSES
 
@@ -323,7 +323,7 @@ def task_delivery(store: Any, mission_id: str, task_id: int, *, controller_live:
         operation = active_operation(store, mission_id)
         if operation is not None:
             provider = provider_of_station(config, str(operation["route_id"] or operation["station"] or ""))
-            if provider in notice_providers():
+            if claude_accounts.provider_family(provider) in notice_providers():
                 return {"mode": "provider-notice", "text": DELIVERED_TEXT, "after_task": None}
     ahead = store.runs_after(task_id)
     if ahead:

@@ -52,11 +52,12 @@ from typing import Any
 
 from . import common
 from .capacity import ALL_PROVIDERS
+from .claude_accounts import ACCOUNT_NAME
 
 
 # Allowed keys per section. Unknown keys are a hard error so typos surface
 # immediately instead of being silently ignored.
-_TOP_LEVEL_KEYS = frozenset({"defaults", "providers", "ralph", "scheduler", "routes", "budget", "copilot", "usage", "bridge"})
+_TOP_LEVEL_KEYS = frozenset({"defaults", "providers", "ralph", "scheduler", "routes", "budget", "copilot", "usage", "bridge", "claude"})
 _BRIDGE_KEYS = frozenset({"theme", "teams", "token_spend", "retention", "task_notices", "verifiers"})
 _USAGE_KEYS = frozenset({"providers"})
 _BUDGET_KEYS = frozenset({"monthly", "currency"})
@@ -253,6 +254,16 @@ def load_config(env: dict[str, str] | None = None) -> dict[str, Any]:
     return parsed
 
 
+def claude_accounts(cfg: dict[str, Any]) -> dict[str, str]:
+    claude = cfg.get("claude")
+    accounts = claude.get("accounts") if isinstance(claude, dict) else None
+    return {f"claude-{name}": path for name, path in accounts.items()} if isinstance(accounts, dict) else {}
+
+
+def known_providers(cfg: dict[str, Any]) -> tuple[str, ...]:
+    return (*ALL_PROVIDERS, *claude_accounts(cfg))
+
+
 def _validate(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         _fail("top level must be a table")
@@ -267,7 +278,19 @@ def _validate(raw: Any) -> dict[str, Any]:
     _validate_section(raw.get("copilot"), "copilot", _COPILOT_KEYS)
     _validate_copilot(raw.get("copilot"))
     _validate_section(raw.get("usage"), "usage", _USAGE_KEYS)
-    _validate_usage(raw.get("usage"))
+    claude = raw.get("claude")
+    _validate_section(claude, "claude", frozenset({"accounts"}))
+    if claude is not None and "accounts" in claude:
+        accounts = claude["accounts"]
+        if not isinstance(accounts, dict):
+            _fail("claude.accounts must be a table")
+        for name, path in accounts.items():
+            if not ACCOUNT_NAME.fullmatch(name):
+                _fail("claude.accounts names must start with a lowercase letter or digit and use at most 32 lowercase letters, digits, underscores or hyphens")
+            if not isinstance(path, str) or not path.strip() or "\0" in path or not path.startswith(("/", "~/")):
+                _fail(f"claude.accounts.{name} must be an absolute path or start with ~/")
+    known = known_providers(raw)
+    _validate_usage(raw.get("usage"), known)
     bridge = raw.get("bridge")
     if bridge is not None:
         _validate_section(bridge, "bridge", _BRIDGE_KEYS)
@@ -293,8 +316,8 @@ def _validate(raw: Any) -> dict[str, Any]:
         if not isinstance(providers, dict):
             _fail("'providers' must be a table of provider name to policy")
         for name, policy in providers.items():
-            if name not in ALL_PROVIDERS:
-                _fail(f"unknown provider '{name}' (known: {', '.join(ALL_PROVIDERS)})")
+            if name not in known:
+                _fail(f"unknown provider '{name}' (known: {', '.join(known)})")
             if not isinstance(policy, dict):
                 _fail(f"providers.{name} must be a table")
             unknown_keys = set(policy) - _PROVIDER_KEYS
@@ -302,8 +325,8 @@ def _validate(raw: Any) -> dict[str, Any]:
                 _fail(f"providers.{name}: unknown key(s): {', '.join(sorted(unknown_keys))}")
             if "allow_fallback" in policy and not isinstance(policy["allow_fallback"], bool):
                 _fail(f"providers.{name}.allow_fallback must be true or false")
-        _validate_capacity_providers(providers)
-    _validate_routes(raw.get("routes"), providers or {})
+        _validate_capacity_providers(providers, known)
+    _validate_routes(raw.get("routes"), providers or {}, known)
     return raw
 
 
@@ -367,7 +390,7 @@ def _validate_budget(budget: Any) -> None:
         _fail("budget.currency must be a string")
 
 
-def _validate_usage(usage: Any) -> None:
+def _validate_usage(usage: Any, known: tuple[str, ...] = ALL_PROVIDERS) -> None:
     """Validate the optional ``[usage]`` table.
 
     ``providers`` is the set of providers every tool may use (see
@@ -383,8 +406,8 @@ def _validate_usage(usage: Any) -> None:
     if not providers:
         _fail("usage.providers must name at least one provider (omit the key to enable all providers)")
     for name in providers:
-        if name not in ALL_PROVIDERS:
-            _fail(f"usage.providers: unknown provider '{name}' (known: {', '.join(ALL_PROVIDERS)})")
+        if name not in known:
+            _fail(f"usage.providers: unknown provider '{name}' (known: {', '.join(known)})")
 
 
 def bridge_theme_config(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -420,10 +443,11 @@ def enabled_providers(env: dict[str, str] | None = None) -> frozenset[str] | Non
     raw = env.get("LLM_USAGE_PROVIDERS")
     if raw is not None and raw.strip():
         names = [name.strip().lower() for name in raw.split(",") if name.strip()]
-        unknown = [name for name in names if name not in ALL_PROVIDERS]
+        known = known_providers(load_config(env)) if any(name not in ALL_PROVIDERS for name in names) else ALL_PROVIDERS
+        unknown = [name for name in names if name not in known]
         if unknown or not names:
             problem = f"unknown provider(s) {', '.join(unknown)}" if unknown else "no provider names"
-            common.err(f"LLM_USAGE_PROVIDERS: {problem} (known: {', '.join(ALL_PROVIDERS)})")
+            common.err(f"LLM_USAGE_PROVIDERS: {problem} (known: {', '.join(known)})")
             raise SystemExit(2)
         return frozenset(names)
     names_from_config = usage_providers(load_config(env))
@@ -485,7 +509,7 @@ def copilot_spend_limit(cfg: dict[str, Any]) -> tuple[float | None, str]:
     return float(amount), currency
 
 
-def _validate_capacity_providers(providers: dict[str, Any]) -> None:
+def _validate_capacity_providers(providers: dict[str, Any], known: tuple[str, ...] = ALL_PROVIDERS) -> None:
     """Validate every ``capacity_provider`` reference in the providers table.
 
     A reference must name a known provider, must not point at itself, and must
@@ -496,8 +520,8 @@ def _validate_capacity_providers(providers: dict[str, Any]) -> None:
         target = policy.get("capacity_provider")
         if target is None:
             continue
-        if not isinstance(target, str) or target not in ALL_PROVIDERS:
-            _fail(f"providers.{name}.capacity_provider must be a known provider (known: {', '.join(ALL_PROVIDERS)})")
+        if not isinstance(target, str) or target not in known:
+            _fail(f"providers.{name}.capacity_provider must be a known provider (known: {', '.join(known)})")
         if target == name:
             _fail(f"providers.{name}.capacity_provider cannot reference itself")
         target_policy = providers.get(target) or {}
@@ -518,7 +542,7 @@ def _validate_section(section: Any, name: str, allowed: frozenset[str]) -> None:
         _fail(f"{name}: unknown key(s): {', '.join(sorted(unknown))} (allowed: {', '.join(sorted(allowed))})")
 
 
-def _validate_routes(routes: Any, providers: dict[str, Any]) -> None:
+def _validate_routes(routes: Any, providers: dict[str, Any], known: tuple[str, ...] = ALL_PROVIDERS) -> None:
     """Validate the ``[routes.<id>]`` table.
 
     Each route must declare a known provider. The ``capacity`` /
@@ -542,10 +566,10 @@ def _validate_routes(routes: Any, providers: dict[str, Any]) -> None:
         provider = route_block.get("provider")
         if not provider:
             _fail(f"routes.{route_id}: 'provider' is required")
-        if not isinstance(provider, str) or provider not in ALL_PROVIDERS:
+        if not isinstance(provider, str) or provider not in known:
             _fail(
                 f"routes.{route_id}: unknown provider {provider!r} "
-                f"(known: {', '.join(ALL_PROVIDERS)})"
+                f"(known: {', '.join(known)})"
             )
         model = route_block.get("model")
         if model is not None and not isinstance(model, str):
@@ -574,7 +598,7 @@ def _validate_routes(routes: Any, providers: dict[str, Any]) -> None:
                     f"routes.{route_id}.capacity.policy = 'delegate' requires "
                     f"'capacity.provider' to name a known provider"
                 )
-            if target not in ALL_PROVIDERS:
+            if target not in known:
                 _fail(
                     f"routes.{route_id}.capacity.provider {target!r} must be a known provider"
                 )

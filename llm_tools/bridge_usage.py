@@ -25,11 +25,10 @@ def _injected_provider_data(env: Mapping[str, str]) -> dict[str, Any] | None:
     """
     if not (env.get("LLM_SCHEDULER_USAGE_JSON") or env.get("LLM_SCHEDULER_USAGE_JSON_FILE")):
         return None
-    from . import common, usage
-    from .capacity import ALL_PROVIDERS
+    from . import common, config as toolconfig, usage
 
     data: dict[str, Any] = {}
-    for name in ALL_PROVIDERS:
+    for name in toolconfig.known_providers(toolconfig.load_config(dict(env))):
         snapshot = common.usage_snapshot_for_provider(name, dict(env))
         scopes = common._decision_scopes(snapshot, name)
         available = bool(snapshot.get("available", True))
@@ -91,6 +90,7 @@ def collect_usage(rotation: Iterable[str] | None = None) -> dict[str, Any]:
 def rotation_providers(snapshot: Mapping[str, Any]) -> frozenset[str]:
     """Provider ids in the mission's rotation, from its projection (configured stations, then the controller's decisions)."""
     from .capacity import ALL_PROVIDERS
+    from .claude_accounts import is_account
 
     names: list[str] = []
     stations = snapshot.get("stations")
@@ -105,7 +105,7 @@ def rotation_providers(snapshot: Mapping[str, Any]) -> frozenset[str]:
     for decision in (selection.get("decisions") if isinstance(selection, dict) else None) or []:
         if isinstance(decision, dict):
             names += [str(decision.get("provider") or ""), str(decision.get("capacity_provider") or "")]
-    return frozenset(name.strip().lower() for name in names if name.strip().lower() in ALL_PROVIDERS)
+    return frozenset(name.strip().lower() for name in names if name.strip().lower() in ALL_PROVIDERS or is_account(name.strip().lower()))
 
 
 def print_usage_table(stream: Any = None) -> None:

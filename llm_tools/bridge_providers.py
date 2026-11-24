@@ -31,6 +31,8 @@ import re
 from dataclasses import dataclass
 from typing import Mapping
 
+from .claude_accounts import provider_family
+
 PROMPT_ARGV = "argv"
 PROMPT_STDIN = "stdin"
 PROMPT_FILE = "file"
@@ -214,7 +216,7 @@ REGISTRY: dict[str, ProviderSpec] = {
 
 def get(provider: str) -> ProviderSpec | None:
     """The record for ``provider`` (case-insensitive), or ``None`` for an unknown name."""
-    return REGISTRY.get(provider.strip().lower())
+    return REGISTRY.get(provider_family(provider.strip().lower()))
 
 
 def expand(template: tuple[str, ...], *, model_flags: list[str], cwd: str, prompt: str) -> list[str]:

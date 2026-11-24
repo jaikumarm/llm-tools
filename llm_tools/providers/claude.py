@@ -8,9 +8,6 @@ not need to know which one won.
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
 from typing import Any
 
 from .. import common
@@ -42,18 +39,18 @@ def read_claude(env: dict[str, str] | None = None) -> dict[str, Any] | None:
     return common.read_claude(env)
 
 
-def read(env: dict[str, str] | None = None) -> ProviderSnapshot:
+def read(env: dict[str, str] | None = None, *, provider: str = PROVIDER_CLAUDE) -> ProviderSnapshot:
     raw = read_claude(env)
     if not raw:
         return ProviderSnapshot(
-            provider=PROVIDER_CLAUDE,
+            provider=provider,
             available=False,
             reason="no-local-data",
             source="~/.claude/projects",
         )
     if raw.get("available") is False:
         return ProviderSnapshot(
-            provider=PROVIDER_CLAUDE,
+            provider=provider,
             available=False,
             reason=str(raw.get("reason") or "unavailable"),
             source=str(raw.get("source") or "~/.claude/projects"),
@@ -100,7 +97,7 @@ def read(env: dict[str, str] | None = None) -> ProviderSnapshot:
             )
         )
     return ProviderSnapshot(
-        provider=PROVIDER_CLAUDE,
+        provider=provider,
         available=bool(scopes),
         source=source,
         scopes=scopes,

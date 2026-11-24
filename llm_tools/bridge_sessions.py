@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Any, Mapping, cast
 import uuid
 
-from . import bridge_providers
+from . import bridge_providers, claude_accounts, common
 from .fileio import open_regular_file, read_proc_text
 
 
@@ -138,7 +138,7 @@ def _session_fields(provider: str, record: Mapping[str, Any]) -> tuple[str, str,
         cwd = payload.get("cwd")
         return (str(session_id or ""), str(cwd or ""), "codex:session_meta")
 
-    if provider == "claude":
+    if claude_accounts.provider_family(provider) == "claude":
         sidechain = record.get("isSidechain")
         if sidechain is not None and sidechain is not False:
             return None
@@ -838,8 +838,16 @@ def provider_session_metadata(
         codex_home = Path(os.environ.get("CODEX_HOME", str(Path(home or Path.home()) / ".codex"))).expanduser()
         return next((record for record in codex_session_records(codex_home / "sessions", cwd=cwd, max_files=4096, session_id=session_id)
                      if record.identity.session_id == session_id), None)
-    if normalized == "claude":
-        config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path(home or Path.home()) / ".claude"))).expanduser()
+    if claude_accounts.provider_family(normalized) == "claude":
+        env = dict(os.environ)
+        if home is not None:
+            env["HOME"] = os.fspath(home)
+        try:
+            if claude_accounts.is_account(normalized):
+                env = common.claude_account_environment(normalized, env)
+            config_dir = claude_accounts.config_directory(env)
+        except (OSError, RuntimeError, ValueError):
+            return None
         project = re.sub(r"[^a-zA-Z0-9]", "-", canonical_cwd)
         path = config_dir / "projects" / project / f"{session_id}.jsonl"
     elif normalized == "copilot":
@@ -939,7 +947,7 @@ def pending_operator_questions(
                         if isinstance(call_id, str):
                             pending.pop(call_id, None)
                         continue
-                elif provider == "claude":
+                elif claude_accounts.provider_family(provider) == "claude":
                     message = event.get("message")
                     if not isinstance(message, Mapping):
                         continue

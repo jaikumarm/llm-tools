@@ -75,13 +75,11 @@ def validate_names(conf: dict[str, Any], raw: str, *, routes_allowed: bool) -> l
     """
     import difflib
 
-    from .capacity import ALL_PROVIDERS
-
     names = _split(raw)
     if not names:
         raise ValueError("a rotation needs at least one provider or route name")
     declared = list(conf.get("routes", {})) if routes_allowed and isinstance(conf.get("routes"), dict) else []
-    known = [*declared, *(name for name in ALL_PROVIDERS if name not in declared)]
+    known = [*declared, *(name for name in toolconfig.known_providers(conf) if name not in declared)]
     for name in names:
         if name not in known:
             close = difflib.get_close_matches(name, known, n=3, cutoff=0.5)
@@ -123,7 +121,7 @@ def signin_warnings(conf: dict[str, Any], providers: Any, routes: Any, env: Any 
     from .bridge_doctor import provider_checks
 
     warnings = []
-    for check in provider_checks([(name, cli) for name, cli in entries(conf, providers, routes)], env):
+    for check in provider_checks(entries(conf, providers, routes), env, config=conf):
         if check.get("installed") and check.get("logged_in") is False:
             name = str(check["name"])
             detail = str(check.get("detail") or "").strip()

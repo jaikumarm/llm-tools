@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import common
+from . import claude_accounts, common
 from . import config as toolconfig
 from . import routes
 from . import scheduler
@@ -353,7 +353,9 @@ def parse_providers(raw: str) -> list[str]:
         provider = trim(part)
         if not provider:
             continue
-        if provider not in common.KNOWN_PROVIDERS:
+        if provider not in common.KNOWN_PROVIDERS and (
+            not claude_accounts.is_account(provider) or provider not in toolconfig.claude_accounts(toolconfig.load_config())
+        ):
             common.err(f"invalid provider in --providers: {provider}")
             raise SystemExit(2)
         providers.append(provider)
@@ -583,7 +585,7 @@ def resolve_policies(cfg: RalphConfig, conf: dict[str, Any]) -> None:
     policies: dict[str, toolconfig.ProviderPolicy] = {}
     for provider in cfg.providers:
         policy = toolconfig.provider_policy(conf, provider)
-        if policy.model and provider not in scheduler.MODEL_FLAG_PROVIDERS:
+        if policy.model and claude_accounts.provider_family(provider) not in scheduler.MODEL_FLAG_PROVIDERS:
             common.err(f"warning: model pinning is not supported for provider '{provider}'; ignoring model={policy.model}")
             policy = toolconfig.ProviderPolicy(model=None, allow_fallback=policy.allow_fallback, scope=policy.scope, min_remaining=policy.min_remaining, capacity_provider=policy.capacity_provider)
         elif scheduler.model_missing_slash(provider, policy.model):
@@ -1474,7 +1476,7 @@ def command_template_for(cfg: RalphConfig, provider: str) -> str:
         except (ValueError, IndexError):
             executable = ""
         owners = {executable} if executable in common.KNOWN_PROVIDERS else set()
-    return cfg.command_template if not owners or provider in owners else ""
+    return cfg.command_template if not owners or provider in owners or claude_accounts.provider_family(provider) in owners else ""
 
 
 def scheduler_config_for(
@@ -1524,7 +1526,7 @@ def scheduler_config_for(
         # wake into a single configured provider instead of the rotation.
         suspend_until_ready=cfg.suspend_until_ready,
         exact_stdout=True,
-        claude_stream_json=selected_provider == "claude" and not command_template_for(cfg, selected_provider),
+        claude_stream_json=claude_accounts.provider_family(selected_provider) == "claude" and not command_template_for(cfg, selected_provider),
         ralph_robin_active=True,
         ralph_robin_providers=",".join(cfg.providers),
         # Stamp every relayed provider line with the configured marker (default

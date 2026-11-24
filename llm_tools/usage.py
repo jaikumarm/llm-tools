@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TextIO
 
-from . import common
+from . import claude_accounts, common
+from . import config as toolconfig
 from .capacity import ALL_PROVIDERS, CapacityKind, ProviderSnapshot
 
 
@@ -275,6 +276,7 @@ class Config:
         self.terminal_width = terminal_width(env)
         self.monthly_budget, self.budget_currency = _load_monthly_budget(env)
         self.visible_providers = _load_visible_providers(env)
+        self.claude_accounts = tuple(toolconfig.claude_accounts(toolconfig.load_config(env)))
         self.copilot_spend_limit, self.copilot_spend_currency = _load_copilot_spend_limit(env)
         self.use_service = env.get("LLM_USAGE_NO_SERVICE", "0") != "1"
         self.first_table_wait = first_table_wait_seconds(env)
@@ -1249,7 +1251,7 @@ def print_unavailable_rows(cfg: Config, provider: str) -> None:
     print_usage_rows(cfg, unavailable_rows(provider))
 
 
-def claude_rows(cfg: Config, claude_snap: Any) -> list[UsageRow]:
+def claude_rows(cfg: Config, claude_snap: Any, provider: str = "claude") -> list[UsageRow]:
     """Render Claude into aggregate 5h/weekly rows plus any per-model weekly rows.
 
     Anthropic exposes per-model weekly limits (e.g. Sonnet-only) in addition to
@@ -1257,9 +1259,10 @@ def claude_rows(cfg: Config, claude_snap: Any) -> list[UsageRow]:
     section with the model named in the Model column. They are display-only and
     do not affect scheduler gating (see :class:`ProviderSnapshot.model_scopes`).
     """
+    label = common.usage_history_provider(provider)
     if not getattr(claude_snap, "available", False):
         return provider_unavailable_rows(
-            "Claude",
+            label,
             getattr(claude_snap, "source", ""),
             getattr(claude_snap, "reason", "") or "no-local-data",
         )
@@ -1267,11 +1270,11 @@ def claude_rows(cfg: Config, claude_snap: Any) -> list[UsageRow]:
     source = legacy.get("source", "")
     five_used = (legacy.get("five_hour") or {}).get("used")
     week_used = (legacy.get("week") or {}).get("used")
-    common.log_usage_sample("Claude", "5h", common.remaining_from_used(five_used))
-    common.log_usage_sample("Claude", "weekly", common.remaining_from_used(week_used))
+    common.log_usage_sample(label, "5h", common.remaining_from_used(five_used))
+    common.log_usage_sample(label, "weekly", common.remaining_from_used(week_used))
     rows = [
-        row_from_used(cfg, "Claude", "5h", five_used, (legacy.get("five_hour") or {}).get("resets_at"), source),
-        row_from_used(cfg, "Claude", "weekly", week_used, (legacy.get("week") or {}).get("resets_at"), source),
+        row_from_used(cfg, label, "5h", five_used, (legacy.get("five_hour") or {}).get("resets_at"), source),
+        row_from_used(cfg, label, "weekly", week_used, (legacy.get("week") or {}).get("resets_at"), source),
     ]
     for scope in getattr(claude_snap, "model_scopes", None) or []:
         model = str((getattr(scope, "extras", None) or {}).get("model") or "")
@@ -1279,8 +1282,8 @@ def claude_rows(cfg: Config, claude_snap: Any) -> list[UsageRow]:
             continue
         rem = scope.remaining_percent
         used = (100.0 - rem) if rem is not None else None
-        common.log_usage_sample(f"Claude {model}", scope.name, rem)
-        rows.append(row_from_used(cfg, f"Claude {model}", scope.name, used, scope.resets_at, scope.source or source, "Claude", model=model))
+        common.log_usage_sample(f"{label} {model}", scope.name, rem)
+        rows.append(row_from_used(cfg, f"{label} {model}", scope.name, used, scope.resets_at, scope.source or source, label, model=model))
     return rows
 
 
@@ -1947,6 +1950,9 @@ def service_environment_fingerprint(env: dict[str, str] | None = None) -> str:
         for key, value in env.items()
         if key in _SERVICE_ENV_KEYS or any(key.startswith(prefix) for prefix in _SERVICE_ENV_PREFIXES)
     }
+    accounts = toolconfig.claude_accounts(toolconfig.load_config(env))
+    if accounts:
+        relevant["claude.accounts"] = json.dumps(accounts, sort_keys=True)
     encoded = json.dumps(relevant, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -1969,6 +1975,7 @@ def service_payload_from_provider_data(cfg: Config, provider_data: dict[str, Any
             "minimax": snapshot_to_json(provider_data.get("minimax")),
             "zai": snapshot_to_json(provider_data.get("zai")),
             "antigravity": snapshot_to_json(provider_data.get("antigravity") or unavailable_snapshot("antigravity", "agy /usage")),
+            **{name: snapshot_to_json(data) for name, data in provider_data.items() if claude_accounts.is_account(name)},
         },
     }
 
@@ -1987,6 +1994,7 @@ def provider_data_from_service_payload(payload: dict[str, Any]) -> dict[str, Any
         "zai": snapshot_from_json(providers.get("zai")),
         "antigravity": snapshot_from_json(providers["antigravity"]) if "antigravity" in providers
         else unavailable_snapshot("antigravity", "agy /usage"),
+        **{name: snapshot_from_json(data) for name, data in providers.items() if claude_accounts.is_account(name)},
     }
 
 
@@ -2002,15 +2010,17 @@ def log_samples_from_provider_data(provider_data: dict[str, Any]) -> None:
     sampling does not re-enter route rendering or perform a second provider read
     merely to keep ``Remaining Time`` history warm.
     """
-    claude_snap = provider_data.get("claude")
-    if getattr(claude_snap, "available", False):
+    for name, claude_snap in provider_data.items():
+        if claude_accounts.provider_family(name) != "claude" or not getattr(claude_snap, "available", False):
+            continue
+        label = common.usage_history_provider(name)
         legacy = _legacy_claude(claude_snap) or {}
-        common.log_usage_sample("Claude", "5h", common.remaining_from_used((legacy.get("five_hour") or {}).get("used")))
-        common.log_usage_sample("Claude", "weekly", common.remaining_from_used((legacy.get("week") or {}).get("used")))
+        common.log_usage_sample(label, "5h", common.remaining_from_used((legacy.get("five_hour") or {}).get("used")))
+        common.log_usage_sample(label, "weekly", common.remaining_from_used((legacy.get("week") or {}).get("used")))
         for scope in getattr(claude_snap, "model_scopes", None) or []:
             model = str((getattr(scope, "extras", None) or {}).get("model") or "")
             if model:
-                common.log_usage_sample(f"Claude {model}", scope.name, scope.remaining_percent)
+                common.log_usage_sample(f"{label} {model}", scope.name, scope.remaining_percent)
 
     codex_json = provider_data.get("codex") if isinstance(provider_data.get("codex"), dict) else None
     if codex_json and codex_json.get("available") is not False:
@@ -2215,7 +2225,14 @@ class ProviderReads:
     """
 
     def __init__(self, cfg: Config, progress: "ProgressReporter | None" = None) -> None:
+        from .providers import read_claude_snapshot
+
         readers = _provider_readers()
+        for name in cfg.claude_accounts:
+            readers[name] = (
+                lambda name=name: read_claude_snapshot(common.claude_account_environment(name, os.environ), provider=name),
+                lambda name=name: unavailable_snapshot(name, "claude reader"),
+            )
         hidden = {name: fallback for name, (_reader, fallback) in readers.items() if not provider_visible(cfg, name)}
         readers = {name: pair for name, pair in readers.items() if name not in hidden}
         self.progress = progress
@@ -2288,22 +2305,17 @@ def _fetch_provider_data(cfg: Config, anchor: tuple[int, int] | None = None) -> 
         progress.stop()
 
 
+def _claude_json(provider: str, snap: ProviderSnapshot) -> dict[str, Any]:
+    if snap.available:
+        return common.json_for_provider(_legacy_claude(snap), provider)
+    return {"provider": provider, "available": False, "reason": snap.reason, "source": snap.source}
+
+
 def json_object_from_provider_data(cfg: Config, provider_data: dict[str, Any], generated_at: str | None = None) -> dict[str, Any]:
-    claude_snap = provider_data["claude"]
-    claude_json = (
-        common.json_for_provider(_legacy_claude(claude_snap), "claude")
-        if claude_snap.available
-        else {
-            "provider": "claude",
-            "available": False,
-            "reason": claude_snap.reason,
-            "source": claude_snap.source,
-        }
-    )
     obj = {
         "generated_at": generated_at or datetime.now(timezone.utc).astimezone().isoformat(),
         "codex": common.json_for_provider(provider_data["codex"], "codex"),
-        "claude": claude_json,
+        "claude": _claude_json("claude", provider_data["claude"]),
         "copilot": _legacy_copilot(provider_data["copilot"], cfg.show_copilot_credits),
         "kilo": _kilo_to_json(provider_data["kilo"]),
         "opencode": _opencode_to_json(provider_data["opencode"]),
@@ -2311,8 +2323,11 @@ def json_object_from_provider_data(cfg: Config, provider_data: dict[str, Any], g
         "zai": _zai_to_json(provider_data["zai"]),
         "antigravity": snapshot_to_json(provider_data.get("antigravity") or unavailable_snapshot("antigravity", "agy /usage")),
     }
-    for name in ALL_PROVIDERS:
-        if name in obj and not provider_visible(cfg, name):
+    for name in cfg.claude_accounts:
+        snap = provider_data.get(name) or unavailable_snapshot(name, "claude reader")
+        obj[name] = _claude_json(name, snap)
+    for name in (*ALL_PROVIDERS, *cfg.claude_accounts):
+        if not provider_visible(cfg, name):
             obj[name] = {"provider": name, "available": False, "reason": "hidden"}
     # Route mode is opt-in: the ``routes`` key only appears when at
     # least one route is configured. Existing JSON consumers keep
@@ -2380,6 +2395,8 @@ def _provider_data_via_service(cfg: Config, *, start_ephemeral: bool = True) -> 
         return None
     if provider_visible(cfg, "antigravity") and "antigravity" not in payload["providers"]:
         return None  # a sampler started before Antigravity support must refresh locally
+    if any(name not in provider_data for name in cfg.claude_accounts):
+        return None  # the sampler has yet to sample the current accounts
     if _service_hid_visible_provider(cfg, provider_data):
         return None
     generated_at = payload.get("generated_at")
@@ -2458,6 +2475,9 @@ def _build_usage_rows(
             cfg, provider_data.get("antigravity") or unavailable_snapshot("antigravity", "agy /usage"),
         )),
     ]
+    builders.extend((name, lambda name=name: claude_rows(
+        cfg, provider_data.get(name) or unavailable_snapshot(name, "claude reader"), name,
+    )) for name in cfg.claude_accounts)
     rows: list[UsageRow] = []
     for name, build in builders:
         if not provider_visible(cfg, name):
@@ -3123,7 +3143,7 @@ def statusline_mode() -> None:
     text = sys.stdin.read()
     obj = common.read_json_text(text)
     if isinstance(obj, dict) and (obj.get("rate_limits") is not None or obj.get("rateLimits") is not None):
-        cache = common.usage_cache_dir() / "claude-status.json"
+        cache = common.claude_status_cache()
         common.make_private_dirs(cache.parent)
         common.atomic_write_text(cache, text + ("\n" if not text.endswith("\n") else ""))  # names working folders and session ids: owner only
     five = None

@@ -35,6 +35,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from .claude_accounts import provider_family
+
 
 # --- Provider identifiers -----------------------------------------------------
 
@@ -188,7 +190,7 @@ class UsageDecision:
 
 
 def valid_scopes_for_provider(provider: str) -> frozenset[str]:
-    return PROVIDER_SCOPES.get(provider, frozenset({SCOPE_AUTO}))
+    return PROVIDER_SCOPES.get(provider_family(provider), frozenset({SCOPE_AUTO}))
 
 
 def is_known_scope(value: str) -> bool:

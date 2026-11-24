@@ -36,6 +36,7 @@ from typing import IO, TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 if TYPE_CHECKING:
     from urllib.error import HTTPError
 
+from . import claude_accounts
 from .capacity import ALL_PROVIDERS
 from .fileio import open_regular_file  # noqa: F401  (re-exported)
 
@@ -1208,20 +1209,39 @@ def read_codex_api(env: dict[str, str] | None = None) -> dict[str, Any] | None:
     return None
 
 
+def claude_account_environment(
+    provider: str, env: Mapping[str, str], *, config: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Select the named account's directory and remove inherited login overrides."""
+    from . import config as toolconfig
+
+    account_dirs = toolconfig.claude_accounts(toolconfig.load_config(dict(env)) if config is None else config)
+    if provider not in account_dirs:
+        raise ValueError(f"unknown Claude account: {provider}")
+    out = dict(env)
+    out["CLAUDE_CONFIG_DIR"] = str(claude_accounts.resolve_directory(account_dirs[provider], env))
+    for name in claude_accounts.AUTH_OVERRIDES:
+        out.pop(name, None)
+    return out
+
+
+def claude_status_cache(env: dict[str, str] | None = None) -> Path:
+    env = env or os.environ
+    return usage_cache_dir(env) / f"claude-status{claude_accounts.cache_suffix(env)}.json"
+
+
 def _read_claude_api_raw(env: dict[str, str] | None) -> dict[str, Any] | None:
     """Internal Claude API read; lives in common so provider adapters stay
     cyclic-free."""
     env = env or os.environ
-    cache = usage_cache_dir(env) / "claude-usage-api.json"
-    cred = home_dir(env) / ".claude" / ".credentials.json"
+    cache = usage_cache_dir(env) / f"claude-usage-api{claude_accounts.cache_suffix(env)}.json"
+    cred = claude_accounts.config_directory(env) / ".credentials.json"
     cred_data: dict[str, Any] = {}
     try:
         parsed = json.loads(cred.read_text(encoding="utf-8"))
         if isinstance(parsed, dict):
             cred_data = parsed
-    except OSError:
-        pass
-    except json.JSONDecodeError:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         pass
     oauth = cred_data.get("claudeAiOauth")
     token = oauth.get("accessToken", "") if isinstance(oauth, dict) else ""
@@ -1280,7 +1300,7 @@ def _read_claude_api_raw(env: dict[str, str] | None) -> dict[str, Any] | None:
             # flow. We never drive that flow ourselves (the dashboard must
             # never block on a prompt); instead we fall through to the
             # graceful cache/local-snapshot fallback below. Claude Code
-            # rewrites ``~/.claude/.credentials.json`` whenever it is used,
+            # rewrites its credentials file whenever it is used,
             # so a later read picks up fresh credentials with no action
             # from us.
     elif isinstance(oauth, dict) and oauth.get("refreshToken"):
@@ -1380,7 +1400,7 @@ class ClaudeOAuthUsageFetchResult:
 
 
 def _claude_oauth_rate_limit_path(env: dict[str, str]) -> Path:
-    return usage_cache_dir(env) / "claude-usage-api-rate-limit.json"
+    return usage_cache_dir(env) / f"claude-usage-api-rate-limit{claude_accounts.cache_suffix(env)}.json"
 
 
 def _claude_oauth_rate_limit_active(env: dict[str, str]) -> bool:
@@ -1580,7 +1600,7 @@ def read_claude_api(env: dict[str, str] | None = None) -> dict[str, Any] | None:
     env = env or os.environ
     # Serialize our own readers, without taking Claude Code's credential lock
     # or touching any running session. Recheck cache/cooldown after acquiring.
-    lock = usage_cache_dir(env) / "claude-usage-api.lock"
+    lock = usage_cache_dir(env) / f"claude-usage-api{claude_accounts.cache_suffix(env)}.lock"
     try:
         ensure_private_cache_dir(lock.parent, env)
         lock_file = open_private_text(lock)
@@ -1604,10 +1624,10 @@ def _claude_has_auth(env: dict[str, str] | None = None) -> bool:
     unavailable and there is nothing to retry.
     """
     env = env or os.environ
-    cred = home_dir(env) / ".claude" / ".credentials.json"
+    cred = claude_accounts.config_directory(env) / ".credentials.json"
     try:
         data = json.loads(cred.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return False
     oauth = data.get("claudeAiOauth") if isinstance(data, dict) else None
     if not isinstance(oauth, dict):
@@ -1629,7 +1649,7 @@ def _read_claude_raw(env: dict[str, str]) -> dict[str, Any] | None:
     api = read_claude_api(env)
     if api:
         return api
-    status_cache = usage_cache_dir(env) / "claude-status.json"
+    status_cache = claude_status_cache(env)
     last_stale: dict[str, Any] | None = None
     if status_cache.is_file() and status_cache.stat().st_size > 0:
         try:
@@ -1644,12 +1664,12 @@ def _read_claude_raw(env: dict[str, str]) -> dict[str, Any] | None:
                     return norm
         except (OSError, json.JSONDecodeError):
             pass
-    root = home_dir(env) / ".claude" / "projects"
+    root = claude_accounts.config_directory(env) / "projects"
     record = latest_matching_record(root, lambda o: get_path(o, (("rate_limits",), ("rateLimits",), ("message", "rate_limits"), ("message", "rateLimits"))) is not None, env)
     if not record:
         return last_stale
     line, _path, mtime = record
-    source = "~/.claude/projects"
+    source = str(root) if env.get("CLAUDE_CONFIG_DIR") else "~/.claude/projects"
     norm = normalize_claude_obj(json.loads(line), source)
     stale = stale_if_local_snapshot("claude", norm, source, mtime, env)
     if stale is not norm:
@@ -3234,9 +3254,21 @@ def usage_snapshot_for_provider(provider: str, env: dict[str, str] | None = None
     Kilo has no session windows.
     """
     env = env or os.environ
+    cache_key = provider
     max_age = getattr(_SHARED_READS, "max_age", None)
-    if max_age and not env.get("LLM_SCHEDULER_USAGE_JSON"):
-        return shared_usage_snapshot(provider, env, float(max_age), lambda: _live_usage_snapshot(provider, env))
+    try:
+        if claude_accounts.is_account(provider):
+            env = claude_account_environment(provider, env)
+        if max_age and claude_accounts.provider_family(provider) == "claude":
+            suffix = claude_accounts.cache_suffix(env)
+            if suffix:
+                import hashlib
+
+                cache_key = "claude-" + hashlib.sha256((provider + suffix).encode()).hexdigest()[:24]
+    except (OSError, RuntimeError, ValueError):
+        return {"provider": provider, "available": False, "reason": "invalid-config-directory"}
+    if max_age and not (env.get("LLM_SCHEDULER_USAGE_JSON") or env.get("LLM_SCHEDULER_USAGE_JSON_FILE")):
+        return shared_usage_snapshot(cache_key, env, float(max_age), lambda: _live_usage_snapshot(provider, env))
     return _live_usage_snapshot(provider, env)
 
 
@@ -3363,7 +3395,7 @@ def _live_usage_snapshot(provider: str, env: dict[str, str]) -> dict[str, Any]:
         # whole map there would feed another provider's data into the decision
         # logic and can produce a bogus future ``wait_until`` that hangs callers
         # in a sleep loop. A flat snapshot must still be returned as-is.
-        if isinstance(raw, dict) and any(key in KNOWN_PROVIDERS for key in raw):
+        if isinstance(raw, dict) and any(key in KNOWN_PROVIDERS or claude_accounts.is_account(key) for key in raw):
             return {
                 "provider": provider,
                 "available": False,
@@ -3373,8 +3405,13 @@ def _live_usage_snapshot(provider: str, env: dict[str, str]) -> dict[str, Any]:
         return raw
     if provider == "codex":
         return json_for_provider(read_codex(env), "codex")
-    if provider == "claude":
-        return json_for_provider(read_claude(env), "claude")
+    if claude_accounts.provider_family(provider) == "claude":
+        try:
+            snapshot = json_for_provider(read_claude(env), provider)
+        except (OSError, RuntimeError, ValueError):
+            return {"provider": provider, "available": False, "reason": "reader-error"}
+        snapshot["provider"] = provider
+        return snapshot
     if provider == "copilot":
         return json_for_copilot(read_copilot(env), False)
     if provider == "kilo":
@@ -3686,7 +3723,7 @@ def model_decision_scopes(provider: str, snapshot: dict[str, Any], model: str | 
     if not model:
         return None
     want = model.strip().lower()
-    if provider == "claude":
+    if claude_accounts.provider_family(provider) == "claude":
         entries = snapshot.get("model_weeks")
         if not isinstance(entries, list):
             return None
@@ -3701,7 +3738,7 @@ def model_decision_scopes(provider: str, snapshot: dict[str, Any], model: str | 
                 if not isinstance(week, dict):
                     return None
                 scope = _window_scope_dict("weekly", week, str(snapshot.get("source", "")))
-                scope["usage_history_provider"] = f"Claude {entry['model']}"
+                scope["usage_history_provider"] = f"{usage_history_provider(provider)} {entry['model']}"
                 return [scope]
         return None
     if provider == "codex":
@@ -3905,6 +3942,8 @@ def credential_variables_to_remove(env: Mapping[str, str], provider: str | None)
     such as task verifiers.  A provider this table does not know (a custom
     command template) is left untouched, because its needs cannot be known.
     """
+    if provider is not None:
+        provider = claude_accounts.provider_family(provider)
     if provider is not None and provider not in PROVIDER_CREDENTIAL_GROUPS:
         return []
     keep = PROVIDER_CREDENTIAL_GROUPS.get(provider or "", frozenset())
@@ -3924,7 +3963,7 @@ def credential_variables_unused_by(env: Mapping[str, str], providers: Iterable[s
     known provider keeps are listed. A provider this table does not know
     (a custom command template) may need anything, so nothing is listed.
     """
-    names = set(PROVIDER_CREDENTIAL_GROUPS) if providers is None else {str(p).lower() for p in providers}
+    names = set(PROVIDER_CREDENTIAL_GROUPS) if providers is None else {claude_accounts.provider_family(str(p).lower()) for p in providers}
     if names - set(PROVIDER_CREDENTIAL_GROUPS):
         return []
     keep: set[str] = set()

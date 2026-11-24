@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from . import bridge_providers
+from . import bridge_providers, claude_accounts
 from . import common
 from . import config as toolconfig
 
@@ -289,7 +289,9 @@ def parse_date_d(text: str) -> int | None:
 def validate_args(cfg: SchedulerConfig) -> None:
     if cfg.wake_test:
         return
-    if cfg.provider not in common.KNOWN_PROVIDERS:
+    if cfg.provider not in common.KNOWN_PROVIDERS and (
+        not claude_accounts.is_account(cfg.provider) or cfg.provider not in toolconfig.claude_accounts(toolconfig.load_config())
+    ):
         if not cfg.provider:
             common.err("--provider is required")
         else:
@@ -405,6 +407,14 @@ def _record_popen_process(cfg: SchedulerConfig, proc: subprocess.Popen[Any]) -> 
         raise
 
 
+def claude_launch_directory(provider: str) -> str | None:
+    if claude_accounts.is_account(provider):
+        return common.claude_account_environment(provider, os.environ)["CLAUDE_CONFIG_DIR"]
+    if provider == "claude" and os.environ.get("CLAUDE_CONFIG_DIR"):
+        return str(claude_accounts.config_directory(os.environ))
+    return None
+
+
 def provider_env(cfg: SchedulerConfig) -> dict[str, str] | None:
     """Environment for the provider process: other providers' credentials removed.
 
@@ -412,9 +422,15 @@ def provider_env(cfg: SchedulerConfig) -> dict[str, str] | None:
     """
     foreign = common.credential_variables_to_remove(os.environ, cfg.provider)
     exposes_root = common.package_root() in os.environ.get("PYTHONPATH", "").split(os.pathsep)
-    if not cfg.ralph_robin_active and not cfg.env_overrides and not foreign and not exposes_root:
+    config_dir = claude_launch_directory(cfg.provider)
+    if not cfg.ralph_robin_active and not cfg.env_overrides and not foreign and not exposes_root and config_dir is None:
         return None
     env = common.scrubbed_environment(os.environ, cfg.provider)
+    if config_dir is not None:
+        env["CLAUDE_CONFIG_DIR"] = config_dir
+    if claude_accounts.is_account(cfg.provider):
+        for name in claude_accounts.AUTH_OVERRIDES:
+            env.pop(name, None)
     if cfg.ralph_robin_active:
         env["LLM_TOOLS_RALPH_ROBIN_ACTIVE"] = "1"
         env["LLM_TOOLS_RALPH_ROBIN_SELECTED_PROVIDER"] = cfg.provider
@@ -497,7 +513,7 @@ ZAI_LAUNCH_HINT = bridge_providers.ZAI_LAUNCH_HINT
 
 def provider_model_flags(provider: str, model: str) -> list[str]:
     """The `--model` tokens to inject for ``provider``, or empty when unsupported."""
-    if model and provider in MODEL_FLAG_PROVIDERS:
+    if model and claude_accounts.provider_family(provider) in MODEL_FLAG_PROVIDERS:
         return ["--model", model]
     return []
 
@@ -610,7 +626,7 @@ def prompt_to_stdin(cfg: SchedulerConfig, logs: common.RunLogs, argv: list[str],
         return argv
     if cfg.provider == "codex" and argv[:2] == ["codex", "exec"]:
         rewritten = [*argv[:-1], "-"]
-    elif cfg.provider == "claude" and argv[:1] == ["claude"] and "--print" in argv:
+    elif claude_accounts.provider_family(cfg.provider) == "claude" and argv[:1] == ["claude"] and "--print" in argv:
         rewritten = argv[:-1]
     else:
         return argv
@@ -632,7 +648,7 @@ def scheduler_model_description(cfg: SchedulerConfig) -> str:
         "minimax": "MiniMax default/configured model",
         "antigravity": "Antigravity CLI default/configured model",
         "zai": "Z.ai capacity source (launch via [routes.<id>])",
-    }[cfg.provider]
+    }[claude_accounts.provider_family(cfg.provider)]
 
 
 def print_wake_test() -> None:
@@ -729,6 +745,11 @@ def schedule_resume_and_suspend(cfg: SchedulerConfig, logs: common.RunLogs, targ
         return True
     env_path = os.environ.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     py_path = os.pathsep.join(filter(None, (str(Path(__file__).resolve().parent.parent), os.environ.get("PYTHONPATH", ""))))
+    resume_env = []
+    if claude_accounts.is_account(cfg.provider):
+        resume_env.append(f"--setenv=LLM_TOOLS_CONFIG={toolconfig.config_path().resolve()}")
+    elif cfg.provider == "claude" and (directory := claude_launch_directory(cfg.provider)) is not None:
+        resume_env.append(f"--setenv=CLAUDE_CONFIG_DIR={directory}")
     proc = subprocess.run(
         [
             "systemd-run",
@@ -738,6 +759,7 @@ def schedule_resume_and_suspend(cfg: SchedulerConfig, logs: common.RunLogs, targ
             "--timer-property=WakeSystem=true",
             f"--setenv=PATH={env_path}",
             f"--setenv=PYTHONPATH={py_path}",
+            *resume_env,
             f"--working-directory={cfg.cwd}",
             *common.python_module_argv("llm_tools.scheduler", *argv[1:]),
         ],
@@ -1693,8 +1715,16 @@ def run_tmux(cfg: SchedulerConfig, logs: common.RunLogs, argv: list[str], output
             raise ValueError(f"invalid managed provider environment name: {key}")
         guard_exports += f"export {key}={shlex.quote(str(value))}\n"
     # A tmux pane inherits the server's environment, not ours; remove other providers' credentials there.
-    for key in sorted(common.credential_variables_to_remove(os.environ, cfg.provider)):
+    removed = set(common.credential_variables_to_remove(os.environ, cfg.provider))
+    if claude_accounts.is_account(cfg.provider):
+        removed.update(claude_accounts.AUTH_OVERRIDES)
+    for key in sorted(removed):
         guard_exports += f"unset {shlex.quote(key)}\n"
+    config_dir = claude_launch_directory(cfg.provider)
+    if config_dir is not None:
+        guard_exports += f"export CLAUDE_CONFIG_DIR={shlex.quote(config_dir)}\n"
+    elif cfg.provider == "claude":
+        guard_exports += "unset CLAUDE_CONFIG_DIR\n"
     common.write_private_text(
         cmd_file,
         "#!/usr/bin/env bash\n"
@@ -1869,7 +1899,7 @@ def submit_once(cfg: SchedulerConfig, logs: common.RunLogs, attempt: int, argv: 
                 failure[key] = scheduler_diagnostic[key]
     common.log_event(logs, "attempt_result", {"attempt": attempt, "status": status, "failure": failure})
     if (
-        cfg.provider == "claude"
+        claude_accounts.provider_family(cfg.provider) == "claude"
         and status not in (0, 124, 130, 143, common.AUTONOMY_ABORT_STATUS)
         and time.monotonic() - attempt_started <= common.TRUST_DECLINE_MAX_SECONDS
         and common.output_shows_declined_trust_prompt(output)
@@ -2136,7 +2166,7 @@ def apply_config(cfg: SchedulerConfig, env: dict[str, str] | None = None) -> Non
             cfg.scope = policy.scope
         if "min_remaining" not in cfg.explicit and policy.min_remaining:
             cfg.min_remaining = policy.min_remaining
-        if cfg.model and cfg.provider not in MODEL_FLAG_PROVIDERS:
+        if cfg.model and claude_accounts.provider_family(cfg.provider) not in MODEL_FLAG_PROVIDERS:
             common.err(f"warning: model pinning is not supported for provider '{cfg.provider}'; ignoring model={cfg.model}")
             cfg.model = ""
 

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import common
+from . import claude_accounts, common
 from .fileio import read_proc_text
 from .common import LAUNCH_REFUSED_STATUS, python_module_argv, rooted_module_argv, scrubbed_environment
 from .bridge_sockets import (  # noqa: F401  (re-exported; defined where mission list can use them without loading this module)
@@ -819,7 +819,8 @@ class BridgeMissionHooks:
                 self._db_session_operations[operation_id] = 0.0
                 self._session_started_ns[operation_id] = time.time_ns()
                 return argv
-            if provider not in {"claude", "copilot"} or Path(argv[0]).name != provider:
+            family = claude_accounts.provider_family(provider)
+            if family not in {"claude", "copilot"} or Path(argv[0]).name != family:
                 # New Codex IDs are captured only from this operation's owned
                 # writable process descriptors, never from recency scans.
                 return argv
@@ -831,7 +832,7 @@ class BridgeMissionHooks:
                 provider,
                 session_id,
                 cwd,
-                "claude:system.init" if provider == "claude" else "copilot:session.start",
+                "claude:system.init" if family == "claude" else "copilot:session.start",
             )
             current = provider_session_metadata(provider, session_id, cwd=cwd)
             self._session_baselines[operation_id] = {str(current.path): current.modified_ns} if current else {}
@@ -980,7 +981,7 @@ class BridgeMissionHooks:
 
     def _deliver_task_notices(self, operation_id: str, provider: str) -> None:
         """Type one notice about tasks added or amended during this run into the idle provider pane (DOG-017)."""
-        if self.handle is None or not self.native_tui or self.headless or provider not in bridge_task_notice.notice_providers():
+        if self.handle is None or not self.native_tui or self.headless or claude_accounts.provider_family(provider) not in bridge_task_notice.notice_providers():
             return
         if not bridge_task_notice.notices_enabled():
             return

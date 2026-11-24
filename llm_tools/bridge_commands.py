@@ -686,7 +686,7 @@ def _usage_collect() -> dict[str, Any]:
     source = "service" if generated_at is not None else "direct"
     rows, _ = usage._build_usage_rows(cfg, provider_data)
     providers: list[dict[str, Any]] = []
-    for name in usage.ALL_PROVIDERS:
+    for name in (*usage.ALL_PROVIDERS, *cfg.claude_accounts):
         if not usage.provider_visible(cfg, name):
             continue
         snapshot = provider_data.get(name)

@@ -64,7 +64,6 @@ from typing import Any
 
 from . import common
 from .capacity import (
-    ALL_PROVIDERS,
     CapacityKind,
     CapacityScope,
     ProviderSnapshot,
@@ -79,6 +78,7 @@ from .config import (
     CapacityPolicyConfig,
     CostPolicyConfig,
     RoutePolicy,
+    known_providers,
     parse_routes,
     route_policy,
 )
@@ -672,8 +672,9 @@ def resolve_routes(cfg: dict[str, Any] | None) -> list[RoutePolicy]:
                 if isinstance(item, str) and item and item not in providers:
                     providers.append(item)
     routes = []
+    known = known_providers(cfg)
     for provider in providers:
-        if provider not in ALL_PROVIDERS:
+        if provider not in known:
             continue
         routes.append(route_for_provider(cfg, provider))
     return routes
@@ -722,7 +723,7 @@ def route_or_implicit_provider(cfg: dict[str, Any] | None, route_id: str) -> Rou
     policy = route_policy(cfg, route_id)
     if policy is not None:
         return policy
-    if route_id in ALL_PROVIDERS:
+    if route_id in known_providers(cfg or {}):
         return route_for_provider(cfg or {}, route_id)
     return None
 

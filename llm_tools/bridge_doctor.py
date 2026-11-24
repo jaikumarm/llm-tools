@@ -15,7 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from . import bridge_providers
+from . import bridge_providers, claude_accounts, common
 _CAPACITY_ONLY = frozenset({"zai"})
 
 
@@ -44,7 +44,7 @@ def _codex_login(env: Mapping[str, str]) -> tuple[bool | None, str]:
 def _claude_login(env: Mapping[str, str]) -> tuple[bool | None, str]:
     if str(env.get("CLAUDE_CODE_OAUTH_TOKEN") or "").strip():
         return True, ""
-    data = _read_json(_home(env) / ".claude" / ".credentials.json")
+    data = _read_json(claude_accounts.config_directory(env) / ".credentials.json")
     oauth = data.get("claudeAiOauth") if isinstance(data, dict) else None
     if isinstance(oauth, dict) and (str(oauth.get("accessToken") or "").strip() or str(oauth.get("refreshToken") or "").strip()):
         return True, ""
@@ -97,14 +97,20 @@ def signin_state(cli: str, env: Mapping[str, str] | None = None) -> tuple[bool |
 
     The second item is the command that signs in (``codex login``), or empty. It does not look at PATH.
     """
-    check = _LOGIN_CHECKS.get(cli)
+    check = _LOGIN_CHECKS.get(claude_accounts.provider_family(cli))
     if check is None:
         return None, ""
-    logged_in, detail = check(os.environ if env is None else env)
+    environment = os.environ if env is None else env
+    try:
+        if claude_accounts.is_account(cli):
+            environment = common.claude_account_environment(cli, environment)
+        logged_in, detail = check(environment)
+    except (OSError, RuntimeError, ValueError):
+        return None, ""
     return logged_in, detail.removeprefix("run: ")
 
 
-def provider_check(name: str, launch_cli: str | None = None, env: Mapping[str, str] | None = None, *, check_version: bool = False) -> dict[str, Any]:
+def provider_check(name: str, launch_cli: str | None = None, env: Mapping[str, str] | None = None, *, check_version: bool = False, config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Whether the command behind ``name`` is installed and appears signed in."""
     environment = os.environ if env is None else env
     cli = launch_cli or name
@@ -115,10 +121,16 @@ def provider_check(name: str, launch_cli: str | None = None, env: Mapping[str, s
     path = shutil.which(binary) if env is None else shutil.which(binary, path=environment.get("PATH"))
     if path is None:
         return {"name": name, "launch_cli": cli, "installed": False, "path": None, "logged_in": None, "detail": f"{binary} is not on PATH"}
-    check = _LOGIN_CHECKS.get(cli)
-    logged_in, detail = check(environment) if check else (None, "")
+    family = claude_accounts.provider_family(cli)
+    check = _LOGIN_CHECKS.get(family)
+    try:
+        if claude_accounts.is_account(cli):
+            environment = common.claude_account_environment(cli, environment, config=config)
+        logged_in, detail = check(environment) if check else (None, "")
+    except (OSError, RuntimeError, ValueError):
+        logged_in, detail = False, "invalid Claude config directory"
     result = {"name": name, "launch_cli": cli, "installed": True, "path": path, "logged_in": logged_in, "detail": detail}
-    drift = _version_drift(cli, None if env is None else environment.get("PATH")) if check_version else None
+    drift = _version_drift(family, None if env is None else environment.get("PATH")) if check_version else None
     if drift:
         result["version_drift"] = drift
     return result
@@ -134,7 +146,7 @@ def _version_drift(cli: str, path: str | None = None) -> str | None:
     return bridge_capabilities.version_drift(bridge_capabilities.installed_version(cli, path=path), evidence)
 
 
-def provider_checks(entries: Sequence[tuple[str, str | None]], env: Mapping[str, str] | None = None, *, check_versions: bool = False) -> list[dict[str, Any]]:
+def provider_checks(entries: Sequence[tuple[str, str | None]], env: Mapping[str, str] | None = None, *, check_versions: bool = False, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """One check per distinct ``(name, launch_cli)`` rotation entry, in rotation order."""
     seen: set[tuple[str, str | None]] = set()
     checks = []
@@ -142,7 +154,10 @@ def provider_checks(entries: Sequence[tuple[str, str | None]], env: Mapping[str,
         if (name, launch_cli) in seen:
             continue
         seen.add((name, launch_cli))
-        checks.append(provider_check(name, launch_cli, env, check_version=check_versions))
+        if config is not None and claude_accounts.is_account(launch_cli or name):
+            checks.append(provider_check(name, launch_cli, env, check_version=check_versions, config=config))
+        else:
+            checks.append(provider_check(name, launch_cli, env, check_version=check_versions))
     return checks
 
 
@@ -156,7 +171,7 @@ def _claude_projects(env: Mapping[str, str]) -> dict[str, Any] | None:
     by size and modification time because the launcher asks on every redraw.
     """
     config_dir = str(env.get("CLAUDE_CONFIG_DIR") or "").strip()
-    path = Path(config_dir) / ".claude.json" if config_dir else _home(env) / ".claude.json"
+    path = claude_accounts.config_directory(env) / ".claude.json" if config_dir else _home(env) / ".claude.json"
     try:
         info = path.stat()
     except FileNotFoundError:
@@ -175,14 +190,20 @@ def _claude_projects(env: Mapping[str, str]) -> dict[str, Any] | None:
     return projects
 
 
-def claude_folder_trusted(folder: str | Path, env: Mapping[str, str] | None = None) -> bool | None:
+def claude_folder_trusted(folder: str | Path, env: Mapping[str, str] | None = None, *, provider: str = "claude") -> bool | None:
     """Whether Claude Code already trusts ``folder`` (or a parent), read from its state file.
 
     ``False`` means Claude Code will ask "Is this a project you trust?" the
     first time it starts there. ``None`` means the state file could not be read.
     Nothing is written.
     """
-    projects = _claude_projects(os.environ if env is None else env)
+    environment = os.environ if env is None else env
+    try:
+        if claude_accounts.is_account(provider):
+            environment = common.claude_account_environment(provider, environment)
+        projects = _claude_projects(environment)
+    except (OSError, RuntimeError, ValueError):
+        return None
     if projects is None:
         return None
     try:
@@ -257,6 +278,7 @@ def next_steps(*, tmux_available: bool, providers: Sequence[Mapping[str, Any]], 
         return steps
     steps.append(needs_you or "Ready. In your project folder run llm-bridge, press N, type the task, then choose Start.")
     first = ready[0]
-    if (first.get("launch_cli") or first.get("name")) == "claude" and claude_folder_trusted(folder, env) is False:
+    provider = str(first.get("launch_cli") or first.get("name") or "")
+    if claude_accounts.provider_family(provider) == "claude" and claude_folder_trusted(folder, env, provider=provider) is False:
         steps.append(TRUST_NOTE)
     return steps

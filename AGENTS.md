@@ -27,7 +27,7 @@ This repo contains small Linux Python CLIs for Codex, Claude Code, GitHub Copilo
 * User docs: `README.md`.
 * Local planning/work logs: `docs/archive/PLANS.md` (historical), `WORKLOG.md`.
 * Runtime data root: `${XDG_CACHE_HOME:-$HOME/.cache}/llm-tools`, one subdirectory per tool. Legacy `~/.cache/llm-usage`, `~/.cache/llm-scheduler`, and `~/.cache/ralph-robin` dirs are auto-migrated by `migrate_legacy_cache_dirs` in `llm_tools/common.py`.
-* Usage cache and samples log: `${XDG_CACHE_HOME:-$HOME/.cache}/llm-tools/llm-usage` (`claude-status.json`, `claude-usage-api.json`, `llm-usage.log`)
+* Usage cache and samples log: `${XDG_CACHE_HOME:-$HOME/.cache}/llm-tools/llm-usage` (`claude-status.json`, `claude-usage-api.json`, `llm-usage.log`). Non-default Claude config directories get a directory-derived suffix on the Claude API cache, OAuth cooldown, refresh lock and statusline cache.
 * Usage service history/logs: `${XDG_CACHE_HOME:-$HOME/.cache}/llm-tools/llm-usage/service` (`latest.json`, `history.jsonl`, service logs)
 * Usage service socket/pid: `${XDG_RUNTIME_DIR:-/tmp/llm-tools-$UID}` (`llm-usage.sock`, `llm-usage.pid`) so Unix socket paths stay below platform length limits.
 * Copilot background refresh helper: `llm_tools/copilot_refresh.py`, launched by `read_copilot` for detached cache refreshes.
@@ -114,7 +114,7 @@ After that, the generic `llm_tools/capacity.decide` logic handles the provider's
 * Keep color disabled for non-TTY output, `TERM=dumb`, `NO_COLOR`, or `LLM_USAGE_NO_COLOR`.
 * Ralph/scheduler highlighting should default to a readable green/blue/teal palette that works on typical dark and light terminals. Keep colors centralized in `common.ANSI_COLOR_ROLES` and configurable through `LLM_TOOLS_COLOR_<ROLE>` rather than hard-coding ANSI codes at call sites.
 * Ralph/scheduler live output may use compact UTF-8 symbols to distinguish status, command, tool-call, stderr, diff hunk, and error blocks. Keep symbols centralized in `common.UTF_SYMBOL_ROLES`, configurable through `LLM_TOOLS_SYMBOL_<ROLE>`, and suppressible with `LLM_TOOLS_NO_SYMBOLS=1`.
-* Keep JSON top-level keys stable: `generated_at`, `codex`, `claude`, `copilot`, `kilo`, `opencode`, `minimax`, `zai`, `antigravity`. A provider hidden by `[usage].providers` / `LLM_USAGE_PROVIDERS` keeps its key with `{"provider": ..., "available": false, "reason": "hidden"}`. A top-level `routes` key is added when at least one `[routes.<id>]` is configured; the existing provider keys remain unchanged.
+* Keep JSON top-level keys stable: `generated_at`, `codex`, `claude`, `copilot`, `kilo`, `opencode`, `minimax`, `zai`, `antigravity`. Each `[claude.accounts]` entry adds a `claude-<name>` top-level key. A provider hidden by `[usage].providers` / `LLM_USAGE_PROVIDERS` keeps its key with `{"provider": ..., "available": false, "reason": "hidden"}`. A top-level `routes` key is added when at least one `[routes.<id>]` is configured; the existing provider keys remain unchanged.
 * Keep Copilot unavailable shape explicit: `available:false`, with `reason` when known.
 * Keep option semantics stable: `--show-source`, `--hide-source`, `--show-remaining-time`, `--hide-remaining-time`, `--show-codex-spark`, `--hide-codex-spark`, `--show-copilot-credits`.
 * The `--scope` flag replaces the legacy `--window` flag. `--window` is accepted as a deprecated alias and should not appear as the primary documented interface.
@@ -137,6 +137,8 @@ The app-server `account/rateLimits/read` payload historically carried a 5h windo
 ### Claude Code
 
 Preserve fallback order: API/cache/statusline/local project data. `--statusline` must keep caching stdin JSON for later use. API failure must fall back cleanly.
+
+Honor `CLAUDE_CONFIG_DIR` for credentials, projects, native sessions and statusline data. The default directory is `~/.claude`. Declare extra logins with `[claude.accounts]` in the existing TOML config, for example `work = "~/.claude-work"`. Use the resulting ID, `claude-work`, wherever a provider is selected, including `LLM_USAGE_PROVIDERS`, routes and Bridge rotations. Resolve and pass the selected directory as `CLAUDE_CONFIG_DIR` for a named launch, and clear inherited Claude login overrides. Keep quota history keyed by provider ID and OAuth caches, cooldowns, locks and refresh write-back scoped to the selected config directory. Bridge uses its frozen tool config for the mapping.
 
 ### GitHub Copilot
 
