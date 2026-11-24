@@ -14,7 +14,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, name: str, **changes: object) -> Non
 
 
 def test_every_provider_has_a_record_and_templates_only_use_known_placeholders() -> None:
-    assert {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"} <= set(reg.REGISTRY)
+    assert {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai", "antigravity"} <= set(reg.REGISTRY)
     for spec in reg.REGISTRY.values():
         for template in (spec.native_argv, spec.headless_argv, spec.headless_stream_argv):
             for token in template or ():

@@ -48,7 +48,7 @@ Examples:
   llm-scheduler --provider codex --prompt-file task.md --dry-run
 
 Options:
-  -P, --provider PROVIDER                 Provider: codex, claude, copilot, kilo, opencode, minimax.
+  -P, --provider PROVIDER                 Provider: codex, claude, copilot, kilo, opencode, minimax, antigravity.
   -M, --model MODEL                       Pin the provider model (overrides the config file policy).
   -p, --prompt TEXT                       Prompt text.
   -f, --prompt-file FILE                  Read prompt from FILE, preserving content.
@@ -79,7 +79,7 @@ Options:
   -h, --help                              Show this help.
 
 Scopes:
-  codex/claude/minimax: auto, 5h, weekly
+  codex/claude/minimax/antigravity: auto, 5h, weekly
   copilot:              auto, monthly
   kilo/opencode:        auto, balance, budget, byok, ungated
 """
@@ -289,7 +289,7 @@ def parse_date_d(text: str) -> int | None:
 def validate_args(cfg: SchedulerConfig) -> None:
     if cfg.wake_test:
         return
-    if cfg.provider not in {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"}:
+    if cfg.provider not in common.KNOWN_PROVIDERS:
         if not cfg.provider:
             common.err("--provider is required")
         else:
@@ -481,7 +481,7 @@ def highlight_provider_text(raw: bytes, *, stream_name: str, enabled: bool) -> b
 # capacity provider) select their model through routes, not the launch
 # flag, so a direct ``--provider zai`` invocation would ignore a model pin
 # (with a warning in main).
-MODEL_FLAG_PROVIDERS = frozenset({"claude", "codex", "copilot", "kilo", "opencode"})
+MODEL_FLAG_PROVIDERS = frozenset({"claude", "codex", "copilot", "kilo", "opencode", "antigravity"})
 
 # Kilo and OpenCode both require the ``-m/--model`` value to be a
 # ``provider/model`` pair; a bare model name (no slash) is not rejected up
@@ -630,6 +630,7 @@ def scheduler_model_description(cfg: SchedulerConfig) -> str:
         "kilo": "Kilo Code CLI default/configured model",
         "opencode": "OpenCode CLI default/configured model",
         "minimax": "MiniMax default/configured model",
+        "antigravity": "Antigravity CLI default/configured model",
         "zai": "Z.ai capacity source (launch via [routes.<id>])",
     }[cfg.provider]
 

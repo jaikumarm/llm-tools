@@ -15,8 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-# Command each provider name launches. Names not listed launch a command of the same name.
-_BINARY = {"minimax": "mmx"}
+from . import bridge_providers
 _CAPACITY_ONLY = frozenset({"zai"})
 
 
@@ -76,12 +75,20 @@ def _agent_store_login(app: str):
     return check
 
 
+def _antigravity_login(env: Mapping[str, str]) -> tuple[bool | None, str]:
+    token = _home(env) / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    if token.is_file():
+        return True, ""
+    return False, "run: agy, then /login"
+
+
 _LOGIN_CHECKS = {
     "codex": _codex_login,
     "claude": _claude_login,
     "copilot": _copilot_login,
     "kilo": _agent_store_login("kilo"),
     "opencode": _agent_store_login("opencode"),
+    "antigravity": _antigravity_login,
 }
 
 
@@ -103,7 +110,8 @@ def provider_check(name: str, launch_cli: str | None = None, env: Mapping[str, s
     cli = launch_cli or name
     if cli in _CAPACITY_ONLY:
         return {"name": name, "launch_cli": cli, "installed": None, "path": None, "logged_in": None, "detail": "capacity only; launched through a route"}
-    binary = _BINARY.get(cli, cli)
+    spec = bridge_providers.get(cli)
+    binary = spec.executable if spec else cli
     path = shutil.which(binary) if env is None else shutil.which(binary, path=environment.get("PATH"))
     if path is None:
         return {"name": name, "launch_cli": cli, "installed": False, "path": None, "logged_in": None, "detail": f"{binary} is not on PATH"}
@@ -191,7 +199,7 @@ def claude_folder_trusted(folder: str | Path, env: Mapping[str, str] | None = No
 TRUST_NOTE = "Claude Code asks once to trust a new folder: choose \"Yes, I trust this folder\"."
 
 
-PREFERRED_ORDER = ("claude", "codex", "opencode", "copilot", "kilo")
+PREFERRED_ORDER = ("claude", "codex", "opencode", "copilot", "kilo", "antigravity")
 
 
 def preferred_first_provider(installed: Sequence[str], env: Mapping[str, str] | None = None) -> str | None:

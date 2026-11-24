@@ -45,6 +45,7 @@ PROVIDER_KILO = "kilo"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_MINIMAX = "minimax"
 PROVIDER_ZAI = "zai"
+PROVIDER_ANTIGRAVITY = "antigravity"
 
 ALL_PROVIDERS: tuple[str, ...] = (
     PROVIDER_CLAUDE,
@@ -54,6 +55,7 @@ ALL_PROVIDERS: tuple[str, ...] = (
     PROVIDER_MINIMAX,
     PROVIDER_OPENCODE,
     PROVIDER_ZAI,
+    PROVIDER_ANTIGRAVITY,
 )
 
 
@@ -89,6 +91,7 @@ PROVIDER_SCOPES: dict[str, frozenset[str]] = {
     PROVIDER_KILO: frozenset({SCOPE_AUTO, SCOPE_BALANCE, SCOPE_BUDGET, SCOPE_BYOK, SCOPE_UNGATED}),
     PROVIDER_OPENCODE: frozenset({SCOPE_AUTO, SCOPE_BALANCE, SCOPE_BUDGET, SCOPE_BYOK, SCOPE_UNGATED}),
     PROVIDER_MINIMAX: frozenset({SCOPE_AUTO, SCOPE_5H, SCOPE_WEEKLY}),
+    PROVIDER_ANTIGRAVITY: frozenset({SCOPE_AUTO, SCOPE_5H, SCOPE_WEEKLY}),
     # z.ai exposes a 5h session window and a weekly quota on the same
     # ``/api/monitor/usage/quota/limit`` endpoint. The provider is launched
     # through Kilo (or OpenCode) via a route, so it is a pure capacity
@@ -491,6 +494,7 @@ __all__ = [
     "PROVIDER_MINIMAX",
     "PROVIDER_OPENCODE",
     "PROVIDER_ZAI",
+    "PROVIDER_ANTIGRAVITY",
     "PROVIDER_SCOPES",
     "SCOPE_5H",
     "SCOPE_AUTO",

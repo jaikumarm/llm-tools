@@ -14,6 +14,7 @@ Do not edit it by hand. Earlier hand-written discovery notes are in `provider-ca
 | Kilo | unverified | unverified | unverified | unverified | unverified | supported | unsupported | unsupported | unsupported | unsupported | none |
 | OpenCode | unverified | unverified | unverified | unverified | unverified | supported | unsupported | unsupported | unsupported | unsupported | none |
 | MiniMax | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | none |
+| Antigravity | unverified | unverified | unverified | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | none |
 | z.ai | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | none |
 
 Notes
@@ -21,4 +22,5 @@ Notes
 - Kilo: prompt channel `argv`; kilo 7.3.45 help: `run [message..]` positional; --file attaches, no prompt-file or stdin option documented
 - OpenCode: prompt channel `argv`; opencode 1.18.3 help: `run [message..]` positional; --file attaches, no prompt-file or stdin option documented
 - MiniMax: no native mission. MiniMax mmx exposes text chat, not a native engineering session for LLM Bridge. Run MiniMax models through a route on Kilo or OpenCode instead (e.g. [routes.kilo-minimax-m3] with provider = "kilo" and model = "minimax-m3")
+- Antigravity: prompt channel `argv`; agy 1.5.x launches with a prompt argument via --prompt-interactive or --print
 - z.ai: no native mission. --provider zai has no launch CLI. Launch Kilo or OpenCode instead: use a route (e.g. [routes.kilo-zai-glm-47] with capacity.policy = "delegate" and provider = "zai") or set [providers.kilo] capacity_provider = "zai"

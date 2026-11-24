@@ -84,7 +84,7 @@ def test_routes_render_as_a_vertical_checklist_with_fields_below(tmp_path):
     grid = Grid(size=(34, 120))
     launcher._draw(grid, state)
     assert grid.row(7).startswith("> Providers: rotation: codex")
-    assert "(copilot, kilo, opencode, minimax not installed)" in grid.row(7)
+    assert "(copilot, kilo, opencode, minimax, antigravity not installed)" in grid.row(7)
     assert grid.row(8) == "    ▸[1] codex"
     assert grid.row(9).startswith("     [ ] claude") and "claude-sonnet" not in grid.row(9)
     assert grid.row(10).split() == ["[", "]", "claude-sonnet", "claude", "·", "claude-sonnet-5-5"]

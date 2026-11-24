@@ -578,7 +578,7 @@ def _service_path(env: dict[str, str] | None = None) -> str:
             seen.add(path)
             parts.append(path)
 
-    for tool in ("copilot", "node", "codex", "mmx", "kilo", "opencode"):
+    for tool in ("copilot", "node", "codex", "mmx", "kilo", "opencode", "agy"):
         found = shutil.which(tool, path=env.get("PATH"))
         if found:
             add(os.path.dirname(found))

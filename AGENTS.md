@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repo contains small Linux Python CLIs for Codex, Claude Code, GitHub Copilot, and Kilo Code CLI:
+This repo contains small Linux Python CLIs for Codex, Claude Code, GitHub Copilot, Kilo Code, MiniMax, OpenCode, Antigravity (Gemini), and Z.ai:
 
 * `llm-usage` — show local usage/quota for each provider, optionally through a local Unix-socket sampler service.
 * `llm-scheduler` — submit a prompt to a provider CLI once usage data says it is usable (optionally waking/suspending around a scope reset).
@@ -14,6 +14,7 @@ This repo contains small Linux Python CLIs for Codex, Claude Code, GitHub Copilo
 * `llm_tools/bridge_commands.py` (typed command layer shared by CLI and remote transports: operation registry, request/result envelopes, error codes), `llm_tools/bridge_protocol.py` (worker–coordinator protocol v1 parser), `llm_tools/bridge_ws.py` (standard-library WebSocket client), `llm_tools/bridge_worker.py` (optional worker service: `llm-bridge worker enroll|status|run|unenroll`; enrolment in `<state dir>/worker/`, 0600). Distributed design and tracking: `docs/distributed/` (`protocol.md`, `coordinator.md`, `SPEC_STATUS.md`, `WORKLOG.md`, `DECISIONS.md`). Rust coordinator: `coordinator/`.
 * `llm_tools/usage_service.py` — local-only `llm-usage` sampler service (Unix socket, latest snapshot, append-only history; systemd user service / launchd LaunchAgent install helpers).
 * `llm_tools/capacity.py` — generic `ProviderId`, `CapacityKind`, `CapacityScope`, `ProviderSnapshot`, and `UsageDecision` dataclasses plus the `decide`/`validate_scope`/`scope_pace` helpers. All provider-specific reader code lives outside this module.
+* `llm_tools/providers/antigravity.py` — Antigravity CLI adapter for the shared Gemini quota.
 * `llm_tools/providers/kilo.py` — Kilo Code CLI adapter (parser for `kilo stats --days <MTD>` output, env-var fallback, command construction).
 * `llm_tools/providers/minimax.py` — MiniMax adapter (parser for `mmx quota show --output json` output, env-var fallback, command construction).
 * Python modules: `llm_tools/usage.py`, `llm_tools/scheduler.py`, `llm_tools/ralph_robin.py`, `llm_tools/sleep_soak.py`, `llm_tools/copilot_refresh.py`, and package marker `llm_tools/__init__.py`.
@@ -96,9 +97,9 @@ Prefer changing the smallest relevant function surface. Preserve existing functi
 2. Use one of the supported capacity scope kinds: `reset_window`, `balance`, `budget`, `ungated`, `unknown`.
 3. Re-export the module from `llm_tools/providers/__init__.py`.
 4. Register supported scopes in `capacity.PROVIDER_SCOPES`, e.g. `PROVIDER_SCOPES["acme"] = {SCOPE_AUTO, ...}`.
-5. Add default launch commands under `llm_tools.scheduler.provider_default_argv` (both attached and headless paths where applicable).
+5. Register native and headless launch templates in `llm_tools.bridge_providers.REGISTRY` as applicable, then regenerate the capability matrix with `python -m llm_tools.bridge_capabilities --write-doc`.
 6. Optionally add a highlighting pattern in `scheduler.highlight_provider_text`.
-7. Add `--provider` / `--providers` membership in the validators in `scheduler.py` and `ralph_robin.py`.
+7. Add the provider to `capacity.ALL_PROVIDERS` for scheduler, Ralph, and config validation, and wire the reader into `common.usage_snapshot_for_provider` and the usage dashboard.
 
 After that, the generic `llm_tools/capacity.decide` logic handles the provider's scopes, and all three tools can use it through the same model as the existing providers.
 
@@ -113,7 +114,7 @@ After that, the generic `llm_tools/capacity.decide` logic handles the provider's
 * Keep color disabled for non-TTY output, `TERM=dumb`, `NO_COLOR`, or `LLM_USAGE_NO_COLOR`.
 * Ralph/scheduler highlighting should default to a readable green/blue/teal palette that works on typical dark and light terminals. Keep colors centralized in `common.ANSI_COLOR_ROLES` and configurable through `LLM_TOOLS_COLOR_<ROLE>` rather than hard-coding ANSI codes at call sites.
 * Ralph/scheduler live output may use compact UTF-8 symbols to distinguish status, command, tool-call, stderr, diff hunk, and error blocks. Keep symbols centralized in `common.UTF_SYMBOL_ROLES`, configurable through `LLM_TOOLS_SYMBOL_<ROLE>`, and suppressible with `LLM_TOOLS_NO_SYMBOLS=1`.
-* Keep JSON top-level keys stable: `generated_at`, `codex`, `claude`, `copilot`, `kilo`, `opencode`, `minimax`, `zai`. A provider hidden by `[usage].providers` / `LLM_USAGE_PROVIDERS` keeps its key with `{"provider": ..., "available": false, "reason": "hidden"}`. A top-level `routes` key is added when at least one `[routes.<id>]` is configured; the existing provider keys remain unchanged.
+* Keep JSON top-level keys stable: `generated_at`, `codex`, `claude`, `copilot`, `kilo`, `opencode`, `minimax`, `zai`, `antigravity`. A provider hidden by `[usage].providers` / `LLM_USAGE_PROVIDERS` keeps its key with `{"provider": ..., "available": false, "reason": "hidden"}`. A top-level `routes` key is added when at least one `[routes.<id>]` is configured; the existing provider keys remain unchanged.
 * Keep Copilot unavailable shape explicit: `available:false`, with `reason` when known.
 * Keep option semantics stable: `--show-source`, `--hide-source`, `--show-remaining-time`, `--hide-remaining-time`, `--show-codex-spark`, `--hide-codex-spark`, `--show-copilot-credits`.
 * The `--scope` flag replaces the legacy `--window` flag. `--window` is accepted as a deprecated alias and should not appear as the primary documented interface.
@@ -163,6 +164,14 @@ Tests should use the env-var fallback path (`LLM_USAGE_KILO_*`) and `LLM_USAGE_C
 When the row is a plain month-to-date spend row (gateway mode, no configured balance or budget) and Kilo's local database yields the exact cost, `kilo stats` is not run (it takes several seconds to start); the source reads `kilo db` and the currency defaults to `$` as the CLI prints it. A configured balance or budget, or no readable database, still runs the CLI.
 
 Missing CLI in BYOK/local/ungated mode is `reason="missing-cli"`. Missing data in gateway mode is `reason="inconclusive-usage"`. Kilo is not forced into a fake session window; its only scope is `balance`, `budget`, or `ungated`.
+
+### Antigravity (Gemini)
+
+Read the native tab-separated `agy --print /usage` report on every refresh. Use
+only the shared Gemini `5h` and `weekly` windows. Keep model pins and the CLI
+default on Gemini. Live failures use bounded retries via `LLM_USAGE_LIVE_FETCH_RETRIES`.
+Missing CLI and authentication errors return `missing-cli` and `not-authenticated`,
+respectively. The adapter has no stale local snapshot to recover.
 
 ### Route model
 
@@ -249,6 +258,8 @@ Copilot readiness accounts for pay-as-you-go: once the included monthly allowanc
 * `LLM_USAGE_MAX_FILES`
 * `LLM_USAGE_TAIL_LINES`
 * `LLM_USAGE_LOCAL_SNAPSHOT_MAX_AGE` (seconds before active/unknown Codex/Claude local snapshots are reported as stale; capped at 60; non-positive/invalid values fall back to 60)
+* `LLM_USAGE_ANTIGRAVITY_TIMEOUT` (quota query timeout per attempt in seconds, default 20, plus two seconds of subprocess grace)
+* `LLM_USAGE_ANTIGRAVITY_USAGE_TEXT` (inject the native tab-separated report and bypass the CLI; empty means unavailable)
 * `LLM_USAGE_LIVE_FETCH_RETRIES` (extra attempts for active-refresh network reads before falling back; default 2; tests pin 0; also gates stale-usage recovery off entirely when 0)
 * `LLM_USAGE_LIVE_FETCH_RETRY_DELAY` (seconds between live-fetch retries; default 0.5)
 * `LLM_USAGE_LIVE_FETCH_RETRY_MAX_DELAY` (maximum in-process wait before retrying a Claude usage HTTP 429; default 10s; longer Retry-After delays are persisted instead of shortened)

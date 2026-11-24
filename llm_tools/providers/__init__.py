@@ -11,12 +11,13 @@ Adding a new provider is a small, well-defined change:
    returns a :class:`ProviderSnapshot`.
 2. Re-export it from this ``__init__``.
 3. Register it in :data:`llm_tools.capacity.PROVIDER_SCOPES`.
-4. Add a default command under ``llm_tools.scheduler.provider_default_argv``
+4. Add launch templates in ``llm_tools.bridge_providers.REGISTRY``
    and (optionally) highlighting under
    ``llm_tools.scheduler.highlight_provider_text``.
 """
 
-from . import claude, codex, copilot, kilo, minimax, opencode, zai
+from . import antigravity, claude, codex, copilot, kilo, minimax, opencode, zai
+from .antigravity import read as read_antigravity
 from .claude import (
     PROVIDER_CLAUDE,
     normalize as claude_normalize,
@@ -95,6 +96,7 @@ __all__ = [
     "ZAI_REASON_NETWORK",
     "ZAI_REASON_PLAN",
     "ZAI_REASON_QUOTA",
+    "antigravity",
     "claude",
     "claude_normalize",
     "codex",
@@ -117,6 +119,7 @@ __all__ = [
     "opencode_min_balance",
     "opencode_mode",
     "opencode_monthly_reset_epoch",
+    "read_antigravity",
     "read_claude",
     "read_claude_api",
     "read_claude_snapshot",

@@ -285,7 +285,7 @@ def test_doctor_exits_1_when_no_provider_can_run(doctor_env, capsys):
     assert "copilot: not on PATH" in report["blocking"]
     code, text = _doctor(capsys)
     assert code == 1
-    assert "install one of: codex, claude, copilot, kilo, opencode, minimax" in text
+    assert "install one of: codex, claude, copilot, kilo, opencode, minimax, antigravity" in text
     assert "rotation --set" not in text  # without a mission there is no rotation to edit
     assert "copilot: not on PATH · install its CLI to use it" in text
 

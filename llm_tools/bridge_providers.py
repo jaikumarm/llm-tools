@@ -199,6 +199,12 @@ REGISTRY: dict[str, ProviderSpec] = {
         headless_argv=("mmx", "text", "chat", "--message", "{prompt}"),
         native_unavailable=MINIMAX_NATIVE_HINT,
     ),
+    "antigravity": ProviderSpec(
+        "antigravity", "Antigravity", "agy",
+        native_argv=("agy", "{model}", "--prompt-interactive", "{prompt}"),
+        headless_argv=("agy", "{model}", "--print", "{prompt}"),
+        prompt_channel_note="agy 1.5.x launches with a prompt argument via --prompt-interactive or --print",
+    ),
     "zai": ProviderSpec(
         "zai", "z.ai", "zai",
         native_unavailable=ZAI_LAUNCH_HINT, headless_unavailable=ZAI_LAUNCH_HINT,

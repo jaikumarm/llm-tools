@@ -176,7 +176,7 @@ def _no_live_provider_launch(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: 
     monkeypatch.setenv("USERPROFILE", str(isolated_home))  # Path.home() on Windows
     monkeypatch.setenv("LLM_BRIDGE_NO_SIGNIN_CHECK", "1")  # mission create/start do not warn about sign-in; tests of the warning unset this
     monkeypatch.setenv("LLM_BRIDGE_NO_CAPACITY_CHECK", "1")  # the new-mission form reads no provider usage in the background; tests of that unset this
-    for name in ("codex", "claude", "copilot", "kilo", "mmx", "opencode"):
+    for name in ("codex", "claude", "copilot", "kilo", "mmx", "opencode", "agy"):
         path = guard / name
         path.write_text("#!/bin/sh\necho 'Unexpected live provider launch blocked by test harness' >&2\nexit 123\n")
         path.chmod(0o700)
@@ -210,6 +210,7 @@ def _hermetic_config_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "isolated-xdg-config"))
     monkeypatch.delenv("LLM_TOOLS_CONFIG", raising=False)
     monkeypatch.delenv("LLM_USAGE_PROVIDERS", raising=False)
+    monkeypatch.setenv("LLM_USAGE_ANTIGRAVITY_USAGE_TEXT", "")
 
 
 @pytest.fixture(autouse=True)

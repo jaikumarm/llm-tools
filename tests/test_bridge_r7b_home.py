@@ -89,6 +89,8 @@ def test_subtitle_names_only_the_installed_providers(tmp_path) -> None:
     assert launcher.subtitle(("codex", "claude")) == "Run Codex and Claude Code on your tasks · switch as limits run out"
     assert launcher.subtitle(("codex", "claude", "copilot")) == "Run Codex, Claude Code and Copilot on your tasks · switch as limits run out"
     assert launcher.subtitle(("codex",)) == "Run Codex on your tasks"
+    assert launcher.subtitle(launcher.PROVIDER_ORDER, width=80) == launcher._SUBTITLE
+    assert "Antigravity" in launcher.subtitle(launcher.PROVIDER_ORDER, width=140)
     assert launcher.subtitle(()) == launcher._SUBTITLE and "Copilot" not in launcher._SUBTITLE
     assert draw(Launcher(str(tmp_path), installed=("claude",))).row(1) == "Run Claude Code on your tasks"
 

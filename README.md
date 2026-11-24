@@ -25,7 +25,7 @@ Project site: <https://chrisgleissner.github.io/llm-tools/>
 
 | Tool | What it does for you |
 | --- | --- |
-| [`llm-bridge`](#llm-bridge) | Supervises a task queue on Claude Code, Codex and Copilot. Kilo and OpenCode are available, with models pinned through routes. |
+| [`llm-bridge`](#llm-bridge) | Supervises a task queue on Claude Code, Codex and Copilot. Kilo, OpenCode and Antigravity are also available, with models pinned through routes. |
 | [`llm-usage`](#llm-usage) | Shows what is left, and whether it will last. |
 | [`llm-scheduler`](#llm-scheduler) | Starts a prompt the moment a provider has capacity. |
 | [`ralph-robin`](#ralph-robin) | Hands work to the next provider when one runs dry. |
@@ -36,7 +36,7 @@ Project site: <https://chrisgleissner.github.io/llm-tools/>
 You need:
 
 - Python 3.11 or newer on Linux or macOS. Windows runs only the coordinator, web interface and remote client (see [Platforms](#distributed-use-optional)).
-- For the Bridge console and missions: Linux, `tmux`, and at least one provider CLI that is installed and signed in (Claude Code, Codex, Copilot, Kilo or OpenCode).
+- For the Bridge console and missions: Linux, `tmux`, and at least one provider CLI that is installed and signed in (Claude Code, Codex, Copilot, Kilo, OpenCode or Antigravity).
 
 ```bash
 pipx install git+https://github.com/chrisgleissner/llm-tools.git
@@ -281,7 +281,7 @@ Know before you start: one row per limit, plus a forecast.
 
 <img src="./docs/img/llm-usage5.png" alt="llm-usage table showing remaining capacity per provider and scope"/>
 
-- Reads Codex, Claude Code, Copilot, Kilo, MiniMax, OpenCode and Z.ai.
+- Reads Codex, Claude Code, Copilot, Kilo, MiniMax, OpenCode, Antigravity and Z.ai.
 - Refreshes live.
 - Offers JSON and a Claude Code statusline.
 
@@ -309,6 +309,26 @@ llm-scheduler --provider codex --prompt-file task.md --dry-run   # plan only
 ```
 
 [Go deeper →](./docs/llm-scheduler.md)
+
+### Antigravity (Gemini)
+
+Install and sign in to the Antigravity CLI (`agy` 1.5.x). `llm-usage` reads the shared Gemini
+`5h` and `weekly` windows from `agy --print /usage`. In `auto`, both reported windows gate the
+launch. The dashboard displays the Gemini quota, and `llm-usage --json` adds the `antigravity` key alongside the existing provider keys.
+
+```bash
+LLM_USAGE_PROVIDERS=antigravity llm-usage --no-service
+llm-scheduler --provider antigravity --model gemini-4-argon-medium --prompt-file task.md
+ralph-robin --providers antigravity --prompt-file task.md
+```
+
+Run `agy models` to find a Gemini model ID. Set `[providers.antigravity].model` or a route's
+`model` to pin it, or select a Gemini default in `agy`. Bridge offers Antigravity in the
+new-mission form when `agy` is on PATH and the provider is enabled. Native mode uses
+`agy --prompt-interactive`, and headless mode uses `agy --print`.
+
+- `LLM_USAGE_ANTIGRAVITY_TIMEOUT` sets the quota timeout per attempt in seconds (default 20, plus two seconds of subprocess grace).
+- `LLM_USAGE_ANTIGRAVITY_USAGE_TEXT` injects a tab-separated report for tests. An empty value bypasses the CLI and returns unavailable.
 
 ## ralph-robin
 

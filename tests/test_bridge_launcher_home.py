@@ -209,7 +209,7 @@ def test_provider_row_renders_numbers_cursor_and_missing_clis(tmp_path):
     launcher._draw(grid, state)
     row = grid.row(7)
     assert row.startswith("> Providers: ▸[1] claude  [2] codex")
-    assert "(copilot, kilo, opencode, minimax not installed)" in row
+    assert "(copilot, kilo, opencode, minimax, antigravity not installed)" in row
     assert grid.cursor is None  # no text caret on the picker row
     state.installed = ()
     grid = Grid()

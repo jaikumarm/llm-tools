@@ -196,7 +196,7 @@ def test_doctor_next_steps_cover_the_unready_machines(tmp_path: Path) -> None:
     assert signed_out == ["Sign in to a provider first: codex · run: codex login"]
 
     nothing = bridge_doctor.next_steps(tmux_available=True, providers=[missing], folder=tmp_path, env=env)
-    assert nothing == ["Install and sign in to one provider CLI (install one of: codex, claude, copilot, kilo, opencode, minimax), then run llm-bridge doctor again."]
+    assert nothing == ["Install and sign in to one provider CLI (install one of: codex, claude, copilot, kilo, opencode, minimax, antigravity), then run llm-bridge doctor again."]
 
     (tmp_path / ".claude.json").write_text(json.dumps({"projects": {str(tmp_path): {"hasTrustDialogAccepted": True}}}))
     trusted = bridge_doctor.next_steps(tmux_available=True, providers=[claude_ready], folder=tmp_path / "child", env=env)

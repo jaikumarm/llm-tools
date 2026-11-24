@@ -20,7 +20,7 @@ import textwrap
 import time
 from typing import Any, Callable
 
-from . import bridge_composer, bridge_hangup, bridge_redraw
+from . import bridge_composer, bridge_hangup, bridge_providers, bridge_redraw
 from .bridge_store import BridgeStore, default_state_dir, store_path
 from .bridge_store import controller_running as _controller_running
 from .common import KNOWN_PROVIDERS
@@ -53,8 +53,7 @@ _BURST_HINT = "Press Enter again to "
 
 # Declared (display) order of the provider CLIs a mission may use. ``zai`` is a
 # capacity-only provider and has no launch binary of its own.
-PROVIDER_ORDER: tuple[str, ...] = ("codex", "claude", "copilot", "kilo", "opencode", "minimax")
-_PROVIDER_BINARIES = {"minimax": "mmx"}
+PROVIDER_ORDER = tuple(name for name, spec in bridge_providers.specs().items() if spec.headless_argv or spec.native_supported)
 _TERMINAL_STATUSES = FINISHED_MISSION_STATUSES
 _LIVE_STATUSES = CONTROLLED_MISSION_STATUSES
 _STATUS_WIDTH = 9
@@ -81,8 +80,6 @@ _SEQUENCE_SECONDS = 0.03
 _PASTE_STALL_SECONDS = 2.0
 _NBSP = "\u00a0"
 _SUBTITLE = "Run AI coding agents on your tasks \u00b7 switch as limits run out"
-_DISPLAY_NAMES = {"codex": "Codex", "claude": "Claude Code", "copilot": "Copilot", "kilo": "Kilo", "opencode": "OpenCode",
-                  "minimax": "MiniMax"}
 # Screen rows: 0 title and folder, 1 subtitle, 3 section heading, 4 column
 # header (list only), body from 5. The footer rows count from the bottom.
 _HEADING_Y = 3
@@ -118,7 +115,8 @@ class RouteChoice:
 
 def provider_binary(name: str) -> str:
     """Return the executable a provider launches (``minimax`` runs ``mmx``)."""
-    return _PROVIDER_BINARIES.get(name, name)
+    spec = bridge_providers.get(name)
+    return spec.executable if spec else name
 
 
 def provider_installed(name: str) -> bool:
@@ -156,7 +154,7 @@ def detect_installed() -> tuple[str, ...]:
 
 def _listed_names(installed: tuple[str, ...]) -> str:
     """`Codex, Claude Code and Copilot`; empty when no provider is installed."""
-    names = [_DISPLAY_NAMES.get(name, name) for name in installed]
+    names = [spec.display_name if (spec := bridge_providers.get(name)) else name for name in installed]
     if not names:
         return ""
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
@@ -175,7 +173,7 @@ def subtitle(installed: tuple[str, ...], width: int | None = None) -> str:
         full = text + f" {glyph('sep')} switch as limits run out"
         if width is None or cell_width(localize(full)) < width:
             return full
-    return text
+    return text if width is None or cell_width(localize(text)) < width else _SUBTITLE
 
 
 def empty_state_lines(installed: tuple[str, ...], width: int) -> list[str]:
@@ -966,8 +964,6 @@ class Launcher:
                 what = f"{item} needs {binary}, which is" if route is not None else f"{item} is"
                 raise ValueError(f"{what} not installed (not on PATH). Deselect it or install its CLI.")
         if self.native:
-            from . import bridge_providers
-
             for item in providers:
                 message = bridge_providers.native_unavailable_message(routes[item].provider if item in routes else item)
                 if message:

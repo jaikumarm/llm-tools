@@ -335,7 +335,10 @@ def route_cli_present(route: RoutePolicy, env: dict[str, str] | None = None) -> 
     env = env or os.environ
     import shutil
 
-    return shutil.which(route.provider, path=env.get("PATH")) is not None
+    from .bridge_providers import get
+
+    spec = get(route.provider)
+    return shutil.which(spec.executable if spec else route.provider, path=env.get("PATH")) is not None
 
 
 # --- Route decision helper ---------------------------------------------------

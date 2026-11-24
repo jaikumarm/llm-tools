@@ -110,6 +110,7 @@ def provider_display_name(provider: str) -> str:
         "opencode": "OpenCode",
         "minimax": "MiniMax",
         "zai": "Z.ai",
+        "antigravity": "Antigravity",
     }.get(provider, provider)
 
 
@@ -1812,6 +1813,25 @@ def zai_rows(cfg: Config, zai_json: dict[str, Any] | None) -> list[UsageRow]:
     return rows
 
 
+def antigravity_rows(cfg: Config, snap: ProviderSnapshot) -> list[UsageRow]:
+    if not snap.available:
+        return [UsageRow("Antigravity", "5h", None, snap.reason or "unavailable", None, snap.source)]
+    rows = []
+    history = common.usage_history_provider("antigravity")
+    for scope in snap.scopes:
+        remaining = scope.remaining_percent
+        common.log_usage_sample(history, scope.name, remaining)
+        remaining_time = (
+            common.estimate_remaining_time_from_log(history, scope.name, remaining)
+            if cfg.show_remaining_time else "-"
+        )
+        rows.append(UsageRow(
+            "Antigravity", scope.name, remaining, row_left_text(remaining),
+            scope.reset_epoch, scope.source, remaining_time or "-", model="Gemini", kind=scope.kind,
+        ))
+    return rows
+
+
 def print_zai_rows(cfg: Config, zai_json: dict[str, Any] | None) -> None:
     print_usage_rows(cfg, zai_rows(cfg, zai_json))
 
@@ -1948,6 +1968,7 @@ def service_payload_from_provider_data(cfg: Config, provider_data: dict[str, Any
             "opencode": snapshot_to_json(provider_data.get("opencode")),
             "minimax": snapshot_to_json(provider_data.get("minimax")),
             "zai": snapshot_to_json(provider_data.get("zai")),
+            "antigravity": snapshot_to_json(provider_data.get("antigravity") or unavailable_snapshot("antigravity", "agy /usage")),
         },
     }
 
@@ -1964,6 +1985,8 @@ def provider_data_from_service_payload(payload: dict[str, Any]) -> dict[str, Any
         "opencode": snapshot_from_json(providers.get("opencode")),
         "minimax": snapshot_from_json(providers.get("minimax")),
         "zai": snapshot_from_json(providers.get("zai")),
+        "antigravity": snapshot_from_json(providers["antigravity"]) if "antigravity" in providers
+        else unavailable_snapshot("antigravity", "agy /usage"),
     }
 
 
@@ -2014,6 +2037,11 @@ def log_samples_from_provider_data(provider_data: dict[str, Any]) -> None:
         for scope in getattr(minimax_snap, "scopes", []) or []:
             if scope.kind == CapacityKind.RESET_WINDOW:
                 common.log_usage_sample(MINIMAX_DISPLAY_NAME, scope.name, scope.remaining_percent)
+
+    antigravity_snap = provider_data.get("antigravity")
+    if getattr(antigravity_snap, "available", False):
+        for scope in antigravity_snap.scopes:
+            common.log_usage_sample(common.usage_history_provider("antigravity"), scope.name, scope.remaining_percent)
 
     zai_snap = provider_data.get("zai")
     if getattr(zai_snap, "available", False):
@@ -2131,6 +2159,7 @@ def read_provider(name: str, reader: Any, fallback: Any) -> Any:
 
 def _provider_readers() -> dict[str, tuple[Any, Any]]:
     from .providers import (
+        read_antigravity,
         read_claude_snapshot,
         read_copilot_snapshot,
         read_kilo,
@@ -2163,6 +2192,10 @@ def _provider_readers() -> dict[str, tuple[Any, Any]]:
         "minimax": (
             read_minimax,
             lambda: unavailable_snapshot("minimax", "mmx cli"),
+        ),
+        "antigravity": (
+            read_antigravity,
+            lambda: unavailable_snapshot("antigravity", "agy /usage"),
         ),
         "zai": (
             read_zai,
@@ -2276,6 +2309,7 @@ def json_object_from_provider_data(cfg: Config, provider_data: dict[str, Any], g
         "opencode": _opencode_to_json(provider_data["opencode"]),
         "minimax": _minimax_to_json(provider_data["minimax"]),
         "zai": _zai_to_json(provider_data["zai"]),
+        "antigravity": snapshot_to_json(provider_data.get("antigravity") or unavailable_snapshot("antigravity", "agy /usage")),
     }
     for name in ALL_PROVIDERS:
         if name in obj and not provider_visible(cfg, name):
@@ -2344,6 +2378,8 @@ def _provider_data_via_service(cfg: Config, *, start_ephemeral: bool = True) -> 
     provider_data = provider_data_from_service_payload(payload)
     if provider_data is None:
         return None
+    if provider_visible(cfg, "antigravity") and "antigravity" not in payload["providers"]:
+        return None  # a sampler started before Antigravity support must refresh locally
     if _service_hid_visible_provider(cfg, provider_data):
         return None
     generated_at = payload.get("generated_at")
@@ -2395,6 +2431,7 @@ PENDING_ROW_LABELS: dict[str, tuple[str, str]] = {
     "minimax": (MINIMAX_DISPLAY_NAME, "5h"),
     "opencode": ("OpenCode", "balance"),
     "zai": (ZAI_DISPLAY_NAME, "5h"),
+    "antigravity": ("Antigravity", "5h"),
 }
 
 
@@ -2417,6 +2454,9 @@ def _build_usage_rows(
         ("minimax", lambda: minimax_rows(cfg, _minimax_to_json(provider_data["minimax"]))),
         ("opencode", lambda: opencode_rows(cfg, _opencode_to_json(provider_data["opencode"]))),
         ("zai", lambda: zai_rows(cfg, _zai_to_json(provider_data["zai"]))),
+        ("antigravity", lambda: antigravity_rows(
+            cfg, provider_data.get("antigravity") or unavailable_snapshot("antigravity", "agy /usage"),
+        )),
     ]
     rows: list[UsageRow] = []
     for name, build in builders:

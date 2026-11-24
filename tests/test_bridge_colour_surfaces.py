@@ -174,9 +174,9 @@ def test_home_screen_hides_disabled_providers_and_says_so(tmp_path, monkeypatch)
     monkeypatch.setattr("llm_tools.config.enabled_providers", lambda env=None: None)
     assert launcher.disabled_launch_clis() == frozenset()
     state = Launcher(str(tmp_path), creating=True, installed=("codex",), disabled=("claude", "kilo"), providers="codex")
-    assert state.provider_note() == "(copilot, opencode, minimax not installed; claude, kilo disabled in config)"
+    assert state.provider_note() == "(copilot, opencode, minimax, antigravity not installed; claude, kilo disabled in config)"
     state.disabled = ()
-    assert state.provider_note() == "(claude, copilot, kilo, opencode, minimax not installed)"
+    assert state.provider_note() == "(claude, copilot, kilo, opencode, minimax, antigravity not installed)"
     state.disabled = ("claude",)
     state.providers = "claude"
     state.directory = str(tmp_path)

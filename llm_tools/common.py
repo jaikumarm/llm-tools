@@ -36,6 +36,7 @@ from typing import IO, TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 if TYPE_CHECKING:
     from urllib.error import HTTPError
 
+from .capacity import ALL_PROVIDERS
 from .fileio import open_regular_file  # noqa: F401  (re-exported)
 
 
@@ -2725,7 +2726,8 @@ def json_for_copilot(copilot_json: dict[str, Any] | None, show_credits: bool = F
 def usage_history_provider(provider: str) -> str:
     """Canonical aggregate sample label shared with the usage dashboard."""
     return {"codex": "Codex", "claude": "Claude", "minimax": "MiniMax",
-            "zai": "Z.ai", "opencode": "OpenCode", "kilo": "Kilo"}.get(provider, provider)
+            "zai": "Z.ai", "opencode": "OpenCode", "kilo": "Kilo",
+            "antigravity": "Antigravity Gemini"}.get(provider, provider)
 
 
 def log_usage_sample(provider: str, window: str, remaining: Any, env: dict[str, str] | None = None) -> None:
@@ -3219,7 +3221,7 @@ def load_prompt(prompt_text: str, prompt_file: str, logs: RunLogs) -> tuple[str,
 # Providers recognised as top-level keys of a per-provider
 # ``LLM_SCHEDULER_USAGE_JSON`` map. Mirrors the set accepted by
 # ``--provider`` validation in the scheduler/ralph-robin CLIs.
-KNOWN_PROVIDERS = frozenset({"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"})
+KNOWN_PROVIDERS = frozenset(ALL_PROVIDERS)
 
 
 def usage_snapshot_for_provider(provider: str, env: dict[str, str] | None = None) -> dict[str, Any]:
@@ -3405,8 +3407,13 @@ def _live_usage_snapshot(provider: str, env: dict[str, str]) -> dict[str, Any]:
             "selected_model": snap.selected_model,
             "scopes": [_scope_to_dict(s) for s in snap.scopes],
         }
-    if provider == "zai":
-        snap = _zai_snapshot(env)
+    if provider in ("zai", "antigravity"):
+        if provider == "antigravity":
+            from .providers import read_antigravity
+
+            snap = read_antigravity(env)
+        else:
+            snap = _zai_snapshot(env)
         return {
             "provider": snap.provider,
             "available": snap.available,
@@ -3513,7 +3520,7 @@ def _legacy_snapshot_to_scopes(snapshot: dict[str, Any]) -> list[dict[str, Any]]
 
 def _decision_scopes(snapshot: dict[str, Any], provider: str) -> list[dict[str, Any]]:
     """Return the decision-ready scope dicts for ``provider``."""
-    if provider in ("kilo", "opencode", "minimax", "zai"):
+    if provider in ("kilo", "opencode", "minimax", "zai", "antigravity"):
         existing = snapshot.get("scopes")
         if isinstance(existing, list) and existing and isinstance(existing[0], dict) and "kind" in existing[0]:
             return existing
@@ -3887,6 +3894,7 @@ PROVIDER_CREDENTIAL_GROUPS: dict[str, frozenset[str]] = {
     "kilo": frozenset({"kilo", "zai", "minimax", "anthropic-api", "openai-api", "aws", "google", "azure", "openrouter", "huggingface"}),
     "opencode": frozenset({"opencode", "zai", "minimax", "anthropic-api", "openai-api", "aws", "google", "azure", "openrouter", "huggingface"}),
     "minimax": frozenset({"minimax"}),
+    "antigravity": frozenset({"google"}),
 }
 
 

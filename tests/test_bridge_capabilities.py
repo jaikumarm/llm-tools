@@ -24,6 +24,8 @@ def test_without_evidence_probe_capabilities_are_unverified_and_unimplemented_on
     assert by_name["codex"]["evidence"] is None
     assert by_name["kilo"]["capabilities"]["finish"] == "supported"
     assert by_name["minimax"]["capabilities"]["finish"] == "unsupported"
+    assert by_name["antigravity"]["capabilities"]["launch"] == "unverified"
+    assert by_name["antigravity"]["capabilities"]["exact_resume"] == "unsupported"
     assert set(by_name["minimax"]["capabilities"].values()) == {"unsupported"}
 
 

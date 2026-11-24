@@ -103,7 +103,7 @@ Options:
   -d, --dry-run                            Resolve rotation and usage state without submitting.
   -h, --help                               Show this help.
 
-Providers: codex, claude, copilot, kilo, opencode, minimax.
+Providers: codex, claude, copilot, kilo, opencode, minimax, antigravity.
 Scopes: auto, 5h, weekly, monthly, balance, budget, byok, ungated.
 """
 
@@ -353,7 +353,7 @@ def parse_providers(raw: str) -> list[str]:
         provider = trim(part)
         if not provider:
             continue
-        if provider not in {"codex", "claude", "copilot", "kilo", "opencode", "minimax", "zai"}:
+        if provider not in common.KNOWN_PROVIDERS:
             common.err(f"invalid provider in --providers: {provider}")
             raise SystemExit(2)
         providers.append(provider)
