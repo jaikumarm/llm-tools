@@ -67,6 +67,54 @@ def test_default_override_and_named_account_render_and_sample(accounts, monkeypa
     assert bridge_doctor.signin_state("claude-work")[0] is True
 
 
+@pytest.mark.parametrize("five_hour", [{}, {"five_hour": None}, {"five_hour": {"utilization": 10}}],
+                         ids=["absent", "null", "present"])
+def test_claude_optional_five_hour_window(accounts, monkeypatch, capsys, five_hour):
+    default, work = accounts
+    credentials(default, "personal")
+    credentials(work, "work")
+    payload = five_hour | {"seven_day": {"utilization": 21, "resets_at": "2099-01-02T00:00:00Z"}}
+    monkeypatch.setattr(common, "urlopen", lambda *_args, **_kwargs: io.BytesIO(json.dumps(payload).encode()))
+    samples = []
+    monkeypatch.setattr(common, "log_usage_sample", lambda *sample: samples.append(sample))
+    cfg = usage.Config()
+    cfg.color_enabled = False
+    cfg.show_daily_budget = False
+    cfg.show_remaining_time = False
+    data = usage.read_all_provider_data(cfg)
+    has_five_hour = payload.get("five_hour") is not None
+    expected_samples = []
+    for label in ("Claude", "claude-work"):
+        if has_five_hour:
+            expected_samples.append((label, "5h", 90))
+        expected_samples.append((label, "weekly", 79))
+
+    usage.render_from_provider_data(cfg, data)
+    table = capsys.readouterr().out
+    first_scope = r"5h +90%" if has_five_hour else r"weekly +79%"
+    for label in ("Claude", "claude-work"):
+        assert re.search(rf"^{label} +yes +{first_scope}", table, re.MULTILINE)
+    assert len(re.findall(r"\b5h\b", table)) == (2 if has_five_hour else 0)
+    assert len(re.findall(r"\bweekly +79%", table)) == 2
+    assert sorted(samples) == sorted(expected_samples)
+
+    samples.clear()
+    usage.log_samples_from_provider_data(data)
+    assert sorted(samples) == sorted(expected_samples)
+
+    obj = usage.json_object_from_provider_data(cfg, data)
+    for provider in ("claude", "claude-work"):
+        assert obj[provider]["available"] is True
+        assert obj[provider]["week"]["used"] == 21
+        if has_five_hour:
+            assert obj[provider]["five_hour"]["used"] == 10
+        else:
+            assert obj[provider]["five_hour"] is None
+            decision = common.usage_decision_for_provider(provider, "auto", "1", "60", obj[provider])
+            assert decision["usable"] is True
+            assert [window["name"] for window in decision["windows"]] == ["weekly"]
+
+
 def test_account_cache_and_429_cooldown_are_isolated(accounts, monkeypatch):
     default, work = accounts
     credentials(default, "personal")

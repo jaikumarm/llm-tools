@@ -136,6 +136,8 @@ The app-server `account/rateLimits/read` payload historically carried a 5h windo
 
 ### Claude Code
 
+Claude accounts that report only a weekly window show and sample only the weekly quota. Table readiness follows that window, and JSON keeps `"five_hour": null`.
+
 Preserve fallback order: API/cache/statusline/local project data. `--statusline` must keep caching stdin JSON for later use. API failure must fall back cleanly.
 
 Honor `CLAUDE_CONFIG_DIR` for credentials, projects, native sessions and statusline data. The default directory is `~/.claude`. Declare extra logins with `[claude.accounts]` in the existing TOML config, for example `work = "~/.claude-work"`. Use the resulting ID, `claude-work`, wherever a provider is selected, including `LLM_USAGE_PROVIDERS`, routes and Bridge rotations. Resolve and pass the selected directory as `CLAUDE_CONFIG_DIR` for a named launch, and clear inherited Claude login overrides. Keep quota history keyed by provider ID and OAuth caches, cooldowns, locks and refresh write-back scoped to the selected config directory. Bridge uses its frozen tool config for the mapping.

@@ -1268,14 +1268,15 @@ def claude_rows(cfg: Config, claude_snap: Any, provider: str = "claude") -> list
         )
     legacy = _legacy_claude(claude_snap) or {}
     source = legacy.get("source", "")
-    five_used = (legacy.get("five_hour") or {}).get("used")
+    rows = []
+    five = legacy.get("five_hour")
+    if five is not None:
+        five_used = five.get("used")
+        common.log_usage_sample(label, "5h", common.remaining_from_used(five_used))
+        rows.append(row_from_used(cfg, label, "5h", five_used, five.get("resets_at"), source))
     week_used = (legacy.get("week") or {}).get("used")
-    common.log_usage_sample(label, "5h", common.remaining_from_used(five_used))
     common.log_usage_sample(label, "weekly", common.remaining_from_used(week_used))
-    rows = [
-        row_from_used(cfg, label, "5h", five_used, (legacy.get("five_hour") or {}).get("resets_at"), source),
-        row_from_used(cfg, label, "weekly", week_used, (legacy.get("week") or {}).get("resets_at"), source),
-    ]
+    rows.append(row_from_used(cfg, label, "weekly", week_used, (legacy.get("week") or {}).get("resets_at"), source))
     for scope in getattr(claude_snap, "model_scopes", None) or []:
         model = str((getattr(scope, "extras", None) or {}).get("model") or "")
         if not model:
@@ -2015,7 +2016,9 @@ def log_samples_from_provider_data(provider_data: dict[str, Any]) -> None:
             continue
         label = common.usage_history_provider(name)
         legacy = _legacy_claude(claude_snap) or {}
-        common.log_usage_sample(label, "5h", common.remaining_from_used((legacy.get("five_hour") or {}).get("used")))
+        five = legacy.get("five_hour")
+        if five is not None:
+            common.log_usage_sample(label, "5h", common.remaining_from_used(five.get("used")))
         common.log_usage_sample(label, "weekly", common.remaining_from_used((legacy.get("week") or {}).get("used")))
         for scope in getattr(claude_snap, "model_scopes", None) or []:
             model = str((getattr(scope, "extras", None) or {}).get("model") or "")
